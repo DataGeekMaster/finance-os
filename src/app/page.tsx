@@ -376,7 +376,7 @@ const SubscriptionModule = ({
                 {/* TOMBOL DELETE */}
                 <button
                   onClick={() => onDelete(sub.id)}
-                  className="p-1.5 text-gray-600 hover:text-red-500 hover:bg-red-500/10 rounded-md opacity-0 group-hover/item:opacity-100 transition-all"
+                  className="p-1.5 text-gray-600 hover:text-red-500 hover:bg-red-500/10 rounded-md transition-all"
                   title="Hapus"
                 >
                   <Trash2 size={14} />
@@ -2897,7 +2897,7 @@ export default function FinancialFreedomOS() {
             <SubscriptionModule
               subscriptions={subscriptions}
               onAddClick={() => setIsSubModalOpen(true)}
-              onDelete={handleDeleteAsset}
+              onDelete={handleDeleteSubscription}
             />
           </div>
 
