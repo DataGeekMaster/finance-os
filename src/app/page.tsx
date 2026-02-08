@@ -19,7 +19,7 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // UBAH INI KE 'false' JIKA INGIN MENGGUNAKAN DATA SUPABASE ASLI
-const USE_MOCK_DATA = false;
+const USE_MOCK_DATA = true;
 
 // ==========================================
 // 1. TYPE DEFINITIONS & SCHEMAS (Sync with SQL)
@@ -248,8 +248,8 @@ const InvestmentModule = ({
         ))}
       </div>
 
-      <div className="overflow-x-auto max-h-[400px] overflow-y-auto custom-scrollbar">
-        <table className="w-full text-left text-sm">
+      <div className="overflow-x-auto custom-scrollbar -mx-4 px-4 md:mx-0 md:px-0">
+        <table className="w-full text-left text-sm min-w-[500px]">
           <thead className="sticky top-0 bg-[#232323] z-10 shadow-sm shadow-black/20">
             <tr className="text-gray-500 border-b border-white/5">
               <th className="pb-3 pt-2 font-medium">Aset</th>
@@ -257,7 +257,7 @@ const InvestmentModule = ({
               <th className="pb-3 pt-2 font-medium text-right">Avg</th>
               <th className="pb-3 pt-2 font-medium text-right">Sekarang</th>
               <th className="pb-3 pt-2 font-medium text-right">PnL</th>
-              <th className="pb-3 pt-2 font-medium text-center w-8"></th> {/* Kolom Aksi */}
+              <th className="pb-3 pt-2 font-medium text-center w-8"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
@@ -699,7 +699,7 @@ const SubscriptionModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean; on
             <label className={labelClass}>Tanggal Tagihan Berikutnya</label>
             <input type="date" className={`${inputClass} [color-scheme:dark]`} value={formData.next_payment_date} onChange={e => setFormData({ ...formData, next_payment_date: e.target.value })} required />
           </div>
-          <button type="submit" disabled={isLoading} className="w-full bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-3 rounded-xl mt-4 transition-all">
+          <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-yellow-600 to-orange-600 hover:from-yellow-500 hover:to-orange-500 shadow-lg shadow-yellow-900/20 text-white font-bold py-3 rounded-xl mt-4 transition-all">
             {isLoading ? 'Menyimpan...' : 'Simpan Langganan'}
           </button>
         </form>
@@ -894,43 +894,40 @@ const DebtPaymentModal = ({
 };
 
 // ==========================================
-// 5.8. UPDATED: TRADE ASSET MODAL (SMART BUY/SELL)
+// 5.8. UPDATED: TRADE ASSET MODAL (SUPPORT HISTORICAL DATA)
 // ==========================================
 
 const TradeModal = ({
   isOpen,
   onClose,
   onSuccess,
-  assets, // Daftar semua aset master (untuk autocomplete/cek duplikat)
-  portfolio // Data portofolio aktif (untuk validasi stok saat JUAL)
+  assets,
+  portfolio
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (trade: Trade, transaction: Transaction, newAsset?: Asset) => void;
+  // Perhatikan update tipe di sini: transaction bisa undefined/null
+  onSuccess: (trade: Trade, transaction: Transaction | null, newAsset?: Asset) => void;
   assets: Asset[];
   portfolio: PortfolioPosition[];
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [type, setType] = useState<'BUY' | 'SELL'>('BUY');
-
-  // State untuk Slider (Jual)
   const [percentage, setPercentage] = useState(0);
 
-  // Form Data
+  // STATE BARU: Menandai apakah ini data lama
+  const [isHistorical, setIsHistorical] = useState(false);
+
   const [formData, setFormData] = useState({
-    // Fields untuk BUY (New Asset)
     ticker: '',
     name: '',
     class: 'stock' as AssetClass,
-
-    // Fields General
-    asset_id: '', // Dipakai saat SELL
+    asset_id: '',
     date: new Date().toISOString().split('T')[0],
     quantity: '',
     price: ''
   });
 
-  // Reset saat modal dibuka
   useEffect(() => {
     if (isOpen) {
       setFormData({
@@ -942,37 +939,27 @@ const TradeModal = ({
       });
       setType('BUY');
       setPercentage(0);
+      setIsHistorical(false); // Reset checkbox
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  // --- LOGIC HELPER ---
-
-  // Cari max quantity yang dimiliki user (Untuk SELL)
-  const selectedPosition = type === 'SELL'
-    ? portfolio.find(p => p.asset.id === formData.asset_id)
-    : null;
+  const selectedPosition = type === 'SELL' ? portfolio.find(p => p.asset.id === formData.asset_id) : null;
   const maxSellable = selectedPosition ? selectedPosition.quantity : 0;
-
-  // Kalkulasi Total Harga
   const quantity = parseFloat(formData.quantity) || 0;
   const price = parseFloat(formData.price) || 0;
   const total = quantity * price;
 
-  // 1. Handle Slider Change (Geser Slider -> Update Qty)
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const pct = Number(e.target.value);
     setPercentage(pct);
     if (maxSellable > 0) {
-      // Hitung qty berdasarkan persentase (support desimal untuk crypto)
       const calculatedQty = (maxSellable * (pct / 100));
-      // Bulatkan 6 desimal agar rapi tapi presisi
       setFormData(prev => ({ ...prev, quantity: parseFloat(calculatedQty.toFixed(6)).toString() }));
     }
   };
 
-  // 2. Handle Input Qty Change (Ketik Angka -> Update Slider)
   const handleQtyChange = (val: string) => {
     setFormData(prev => ({ ...prev, quantity: val }));
     const numVal = parseFloat(val);
@@ -982,18 +969,14 @@ const TradeModal = ({
     }
   };
 
-  // --- SUBMIT HANDLER ---
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (quantity <= 0 || price <= 0) return alert("Mohon isi jumlah dan harga dengan benar.");
 
-    // Validasi SELL
     if (type === 'SELL') {
       if (!formData.asset_id) return alert("Pilih aset yang ingin dijual.");
       if (quantity > maxSellable) return alert(`Saldo tidak cukup. Max: ${formatCompact(maxSellable)}`);
-    }
-    // Validasi BUY
-    else {
+    } else {
       if (!formData.ticker || !formData.name) return alert("Lengkapi data aset (Ticker & Nama).");
     }
 
@@ -1003,41 +986,31 @@ const TradeModal = ({
       let finalAssetId = formData.asset_id;
       let finalAssetData: Asset | undefined = undefined;
 
-      // STEP A: Handle Asset Creation (Khusus BUY)
+      // STEP A: Handle Asset Creation
       if (type === 'BUY') {
-        // Cek apakah ticker sudah ada di database?
         const existingAsset = assets.find(a => a.ticker.toUpperCase() === formData.ticker.toUpperCase());
-
         if (existingAsset) {
           finalAssetId = existingAsset.id;
           finalAssetData = existingAsset;
         } else {
-          // Buat Asset Baru
           const newAssetPayload = {
             ticker: formData.ticker.toUpperCase(),
             name: formData.name,
             class: formData.class,
-            current_price: price // Set harga awal sama dengan harga beli
+            current_price: price
           };
 
           if (USE_MOCK_DATA) {
             finalAssetId = Math.random().toString();
             finalAssetData = { ...newAssetPayload, id: finalAssetId } as Asset;
           } else {
-            // Insert ke Supabase
-            const { data: assetData, error: assetError } = await supabase
-              .from('assets')
-              .insert([newAssetPayload])
-              .select()
-              .single();
-
+            const { data: assetData, error: assetError } = await supabase.from('assets').insert([newAssetPayload]).select().single();
             if (assetError) throw assetError;
             finalAssetId = assetData.id;
             finalAssetData = assetData as Asset;
           }
         }
       } else {
-        // Untuk SELL, ambil data aset dari list existing
         finalAssetData = assets.find(a => a.id === finalAssetId);
       }
 
@@ -1051,44 +1024,43 @@ const TradeModal = ({
         fee: 0
       };
 
-      // STEP C: Insert Transaction (Money Flow)
-      const transactionPayload = {
-        title: `${type === 'BUY' ? 'Beli' : 'Jual'} ${finalAssetData?.ticker || 'Aset'}`,
-        amount: total,
-        date: formData.date,
-        type: type === 'BUY' ? 'expense' : 'income' as TransactionType,
-        category: type === 'BUY' ? 'Investasi' : 'Profit Investasi',
-        financial_tag: 'savings' as FinancialTag,
-        reference_type: 'trade'
-      };
+      // STEP C: Insert Transaction (HANYA JIKA BUKAN DATA HISTORIS)
+      // Jika isHistorical = true, kita SKIP langkah ini agar cashflow tidak berkurang.
+      let transactionResult: Transaction | null = null;
 
-      // EKSEKUSI DB (Trade & Transaction)
+      if (!isHistorical) {
+        const transactionPayload = {
+          title: `${type === 'BUY' ? 'Beli' : 'Jual'} ${finalAssetData?.ticker || 'Aset'}`,
+          amount: total,
+          date: formData.date,
+          type: type === 'BUY' ? 'expense' : 'income' as TransactionType,
+          category: type === 'BUY' ? 'Investasi' : 'Profit Investasi',
+          financial_tag: 'savings' as FinancialTag,
+          reference_type: 'trade'
+        };
+
+        if (USE_MOCK_DATA) {
+          transactionResult = { ...transactionPayload, id: Math.random().toString() } as Transaction;
+        } else {
+          const { data: txData, error: txError } = await supabase.from('transactions').insert([transactionPayload]).select().single();
+          if (txError) throw txError;
+          transactionResult = txData as Transaction;
+        }
+      }
+
+      // FINAL EXECUTION FOR TRADE
       if (USE_MOCK_DATA) {
         setTimeout(() => {
           const mockTrade = { ...tradePayload, id: Math.random().toString() } as Trade;
-          const mockTx = { ...transactionPayload, id: Math.random().toString() } as Transaction;
-          onSuccess(mockTrade, mockTx, finalAssetData); // Pass new asset if created
+          onSuccess(mockTrade, transactionResult, finalAssetData);
           onClose();
           setIsLoading(false);
         }, 800);
       } else {
-        // 1. Insert Trade
-        const { data: tradeData, error: tradeError } = await supabase
-          .from('trades')
-          .insert([tradePayload])
-          .select()
-          .single();
+        const { data: tradeData, error: tradeError } = await supabase.from('trades').insert([tradePayload]).select().single();
         if (tradeError) throw tradeError;
 
-        // 2. Insert Transaction
-        const { data: txData, error: txError } = await supabase
-          .from('transactions')
-          .insert([transactionPayload])
-          .select()
-          .single();
-        if (txError) throw txError;
-
-        onSuccess(tradeData as Trade, txData as Transaction, finalAssetData);
+        onSuccess(tradeData as Trade, transactionResult, finalAssetData);
         onClose();
         setIsLoading(false);
       }
@@ -1116,60 +1088,44 @@ const TradeModal = ({
 
         <form onSubmit={handleSubmit} className="space-y-5">
 
-          {/* TOGGLE BUY / SELL */}
           <div className="bg-black/40 p-1 rounded-xl flex border border-white/5">
-            <button
-              type="button"
-              onClick={() => { setType('BUY'); setFormData(p => ({ ...p, asset_id: '' })); }}
-              className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${type === 'BUY' ? 'bg-green-600 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
-            >
-              BELI (INVEST)
-            </button>
-            <button
-              type="button"
-              onClick={() => { setType('SELL'); setFormData(p => ({ ...p, ticker: '', name: '' })); }}
-              className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${type === 'SELL' ? 'bg-red-600 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}
-            >
-              JUAL (CAIRKAN)
-            </button>
+            <button type="button" onClick={() => { setType('BUY'); setFormData(p => ({ ...p, asset_id: '' })); }} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${type === 'BUY' ? 'bg-green-600 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}>BELI (INVEST)</button>
+            <button type="button" onClick={() => { setType('SELL'); setFormData(p => ({ ...p, ticker: '', name: '' })); }} className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${type === 'SELL' ? 'bg-red-600 text-white shadow-lg' : 'text-gray-500 hover:text-gray-300'}`}>JUAL (CAIRKAN)</button>
           </div>
 
-          {/* === FORM LOGIC: BUY VS SELL === */}
+          {/* CHECKBOX DATA HISTORIS (FEATURE BARU) */}
+          {type === 'BUY' && (
+            <div className="bg-blue-500/10 border border-blue-500/20 p-3 rounded-xl flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="isHistorical"
+                checked={isHistorical}
+                onChange={e => setIsHistorical(e.target.checked)}
+                className="w-5 h-5 rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-blue-500"
+              />
+              <label htmlFor="isHistorical" className="text-xs text-gray-300 cursor-pointer select-none">
+                <span className="font-bold text-blue-400 block mb-0.5">Input Aset Lama?</span>
+                Jangan catat pengeluaran (Saldo tidak berkurang).
+              </label>
+            </div>
+          )}
 
+          {/* Form Fields Sesuai Tipe */}
           {type === 'BUY' ? (
-            /* --- TAMPILAN BUY (INPUT BEBAS) --- */
             <div className="space-y-4 bg-white/5 p-4 rounded-xl border border-white/5">
               <div className="grid grid-cols-3 gap-3">
                 <div className="col-span-1">
                   <label className={labelClass}>Kode/Ticker</label>
-                  <input
-                    type="text"
-                    className={inputClass}
-                    placeholder="BBCA / BTC"
-                    value={formData.ticker}
-                    onChange={e => setFormData({ ...formData, ticker: e.target.value.toUpperCase() })}
-                    required
-                  />
+                  <input type="text" className={inputClass} placeholder="BBCA" value={formData.ticker} onChange={e => setFormData({ ...formData, ticker: e.target.value.toUpperCase() })} required />
                 </div>
                 <div className="col-span-2">
                   <label className={labelClass}>Nama Aset</label>
-                  <input
-                    type="text"
-                    className={inputClass}
-                    placeholder="Bank Central Asia"
-                    value={formData.name}
-                    onChange={e => setFormData({ ...formData, name: e.target.value })}
-                    required
-                  />
+                  <input type="text" className={inputClass} placeholder="Bank Central Asia" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
                 </div>
               </div>
               <div>
                 <label className={labelClass}>Kategori</label>
-                <select
-                  className={inputClass}
-                  value={formData.class}
-                  onChange={e => setFormData({ ...formData, class: e.target.value as AssetClass })}
-                >
+                <select className={inputClass} value={formData.class} onChange={e => setFormData({ ...formData, class: e.target.value as AssetClass })}>
                   <option value="stock">Saham (Stock)</option>
                   <option value="crypto">Kripto (Crypto)</option>
                   <option value="gold">Emas (Gold)</option>
@@ -1179,57 +1135,30 @@ const TradeModal = ({
               </div>
             </div>
           ) : (
-            /* --- TAMPILAN SELL (DROPDOWN PORTFOLIO) --- */
             <div>
               <label className={labelClass}>Pilih Aset untuk Dijual</label>
-              <select
-                className={inputClass}
-                value={formData.asset_id}
-                onChange={e => {
-                  setFormData({ ...formData, asset_id: e.target.value, quantity: '' });
-                  setPercentage(0);
-                }}
-              >
+              <select className={inputClass} value={formData.asset_id} onChange={e => { setFormData({ ...formData, asset_id: e.target.value, quantity: '' }); setPercentage(0); }}>
                 <option value="">-- Pilih Aset --</option>
-                {/* Hanya tampilkan aset yang Quantity > 0 */}
                 {portfolio.filter(p => p.quantity > 0).map(p => (
-                  <option key={p.asset.id} value={p.asset.id}>
-                    {p.asset.ticker} - Sisa: {formatCompact(p.quantity)}
-                  </option>
+                  <option key={p.asset.id} value={p.asset.id}>{p.asset.ticker} - Sisa: {formatCompact(p.quantity)}</option>
                 ))}
               </select>
             </div>
           )}
 
-          {/* --- COMMON FIELDS (Date, Qty, Price) --- */}
+          {/* Common Fields */}
           <div className="h-px bg-white/5"></div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Tanggal</label>
-              <input
-                type="date"
-                className={`${inputClass} [color-scheme:dark]`}
-                value={formData.date}
-                onChange={e => setFormData({ ...formData, date: e.target.value })}
-                required
-              />
+              <input type="date" className={`${inputClass} [color-scheme:dark]`} value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} required />
             </div>
             <div>
-              <label className={labelClass}>Jumlah Unit (Lot/Coin)</label>
-              <input
-                type="number"
-                step="0.000001" // Support desimal untuk crypto
-                className={inputClass}
-                placeholder="0"
-                value={formData.quantity}
-                onChange={e => handleQtyChange(e.target.value)}
-                required
-              />
+              <label className={labelClass}>Jumlah Unit</label>
+              <input type="number" step="0.000001" className={inputClass} placeholder="0" value={formData.quantity} onChange={e => handleQtyChange(e.target.value)} required />
             </div>
           </div>
 
-          {/* SLIDER KHUSUS SELL */}
           {type === 'SELL' && maxSellable > 0 && (
             <div className="bg-black/20 p-3 rounded-lg border border-white/5">
               <div className="flex justify-between text-[10px] text-gray-400 font-bold mb-1.5">
@@ -1237,15 +1166,7 @@ const TradeModal = ({
                 <span className="text-blue-400">{percentage.toFixed(0)}%</span>
                 <span>100% ({formatCompact(maxSellable)})</span>
               </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                step="1"
-                value={percentage}
-                onChange={handleSliderChange}
-                className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-red-500 hover:accent-red-400 transition-all"
-              />
+              <input type="range" min="0" max="100" step="1" value={percentage} onChange={handleSliderChange} className="w-full h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-red-500 hover:accent-red-400 transition-all" />
             </div>
           )}
 
@@ -1253,34 +1174,17 @@ const TradeModal = ({
             <label className={labelClass}>Harga {type === 'BUY' ? 'Beli' : 'Jual'} per Unit</label>
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">Rp</span>
-              <input
-                type="number"
-                className={`${inputClass} pl-8`}
-                placeholder="0"
-                value={formData.price}
-                onChange={e => setFormData({ ...formData, price: e.target.value })}
-                required
-              />
+              <input type="number" className={`${inputClass} pl-8`} placeholder="0" value={formData.price} onChange={e => setFormData({ ...formData, price: e.target.value })} required />
             </div>
           </div>
 
-          {/* Total Summary */}
           <div className="flex justify-between items-center bg-white/5 p-4 rounded-xl border border-white/5">
             <span className="text-xs text-gray-400 font-bold uppercase">Total Transaksi</span>
-            <span className={`text-xl font-mono font-bold ${type === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>
-              {formatCurrency(total)}
-            </span>
+            <span className={`text-xl font-mono font-bold ${type === 'BUY' ? 'text-green-400' : 'text-red-400'}`}>{formatCurrency(total)}</span>
           </div>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            className={`w-full font-bold py-3.5 rounded-xl mt-2 transition-all flex items-center justify-center gap-2 shadow-lg ${type === 'BUY'
-              ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 shadow-green-900/20'
-              : 'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 shadow-red-900/20'
-              }`}
-          >
-            {isLoading ? 'Memproses...' : (type === 'BUY' ? 'Konfirmasi Beli' : 'Konfirmasi Jual')}
+          <button type="submit" disabled={isLoading} className={`w-full font-bold py-3.5 rounded-xl mt-2 transition-all flex items-center justify-center gap-2 shadow-lg ${type === 'BUY' ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 shadow-green-900/20' : 'bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 shadow-red-900/20'}`}>
+            {isLoading ? 'Memproses...' : (type === 'BUY' ? (isHistorical ? 'Simpan Aset Lama' : 'Konfirmasi Beli') : 'Konfirmasi Jual')}
           </button>
         </form>
       </div>
@@ -1488,6 +1392,7 @@ const DatabaseModal = ({
                 <th className="px-6 py-4 border-b border-white/5 text-center">Aksi</th>
               </tr>
             </thead>
+
             <tbody className="divide-y divide-white/5 text-sm">
               {paginatedData.length === 0 ? (
                 <tr>
@@ -1519,11 +1424,14 @@ const DatabaseModal = ({
                     <td className={`px-6 py-3 text-right font-mono font-bold ${t.type === 'income' ? 'text-green-400' : 'text-red-400'}`}>
                       {t.type === 'income' ? '+' : '-'}{formatCompact(t.amount)}
                     </td>
+
+                    {/* BAGIAN AKSI YANG DIPERBAIKI (VISIBLE ON MOBILE) */}
                     <td className="px-6 py-3 text-center">
-                      <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center justify-center gap-2">
                         <button
                           onClick={() => onEdit(t)}
-                          className="p-2 hover:bg-yellow-500/20 text-gray-400 hover:text-yellow-500 rounded-lg transition-colors"
+                          // Perbaikan: Hapus opacity-0, ganti hover menjadi warna solid lembut
+                          className="p-2 bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500 hover:text-white rounded-lg transition-all"
                           title="Edit"
                         >
                           <Edit2 size={14} />
@@ -1532,7 +1440,8 @@ const DatabaseModal = ({
                           onClick={() => {
                             if (window.confirm(`Hapus transaksi "${t.title}"?`)) onDelete(t.id);
                           }}
-                          className="p-2 hover:bg-red-500/20 text-gray-400 hover:text-red-500 rounded-lg transition-colors"
+                          // Perbaikan: Hapus opacity-0, ganti hover menjadi warna solid lembut
+                          className="p-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-all"
                           title="Hapus"
                         >
                           <Trash2 size={14} />
@@ -1820,16 +1729,9 @@ const GoalModal = ({
           {/* Action Buttons (Simpan & Batal) */}
           <div className="flex gap-3 mt-6">
             <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 bg-white/5 hover:bg-white/10 text-gray-300 font-bold py-3 rounded-xl transition-all"
-            >
-              Batal
-            </button>
-            <button
               type="submit"
               disabled={isLoading}
-              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-900/20 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50"
             >
               {isLoading ? 'Menyimpan...' : 'Buat Goal'}
             </button>
@@ -2125,16 +2027,12 @@ const DebtModal = ({
 
           <div className="flex gap-3 mt-6">
             <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 bg-white/5 hover:bg-white/10 text-gray-300 font-bold py-3 rounded-xl transition-all"
-            >
-              Batal
-            </button>
-            <button
               type="submit"
               disabled={isLoading}
-              className={`flex-1 font-bold py-3 rounded-xl transition-all disabled:opacity-50 text-white ${formData.type === 'payable' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-green-600 hover:bg-green-700'}`}
+              className={`w-full font-bold py-3 rounded-xl transition-all disabled:opacity-50 text-white shadow-lg ${formData.type === 'payable'
+                ? 'bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 shadow-orange-900/20'
+                : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 shadow-green-900/20'
+                }`}
             >
               {isLoading ? 'Menyimpan...' : 'Simpan Data'}
             </button>
@@ -2175,6 +2073,7 @@ export default function FinancialFreedomOS() {
   const [isAddSavingsModalOpen, setIsAddSavingsModalOpen] = useState(false);
   const [selectedGoal, setSelectedGoal] = useState<Goal | null>(null);
   const [isDebtModalOpen, setIsDebtModalOpen] = useState(false);
+  const [hoverAngle, setHoverAngle] = useState(0);
 
   // Inisialisasi Data dari Supabase (Jika Tersedia)
   useEffect(() => {
@@ -2228,6 +2127,23 @@ export default function FinancialFreedomOS() {
   // Handler Sukses Tambah Utang
   const handleCreateDebt = (newDebt: Debt) => {
     setDebts(prev => [...prev, newDebt]);
+  };
+
+  // HANDLER BARU: TRADE SUCCESS (UPDATED)
+  // newTx sekarang bisa null jika user memilih "Input Aset Lama"
+  const handleNewTrade = (newTrade: Trade, newTx: Transaction | null, newAsset?: Asset) => {
+    // 1. Jika ada aset baru (User beli saham baru), tambahkan ke state Assets
+    if (newAsset) {
+      setAssets(prev => [...prev, newAsset]);
+    }
+
+    // 2. Update List Trades
+    setTrades(prev => [...prev, newTrade]);
+
+    // 3. Update List Transaksi (HANYA JIKA ADA TRANSAKSI BARU)
+    if (newTx) {
+      setTransactions(prev => [newTx, ...prev]);
+    }
   };
 
   // --- HANDLERS DELETE BARU ---
@@ -2335,20 +2251,6 @@ export default function FinancialFreedomOS() {
     } catch (err: any) {
       alert("Gagal menghapus: " + err.message);
     }
-  };
-
-  // HANDLER BARU: TRADE SUCCESS
-  const handleNewTrade = (newTrade: Trade, newTx: Transaction, newAsset?: Asset) => {
-    // 1. Jika ada aset baru (User beli saham baru), tambahkan ke state Assets
-    if (newAsset) {
-      setAssets(prev => [...prev, newAsset]);
-    }
-
-    // 2. Update List Trades
-    setTrades(prev => [...prev, newTrade]);
-
-    // 3. Update List Transaksi (Cashflow otomatis terhitung ulang)
-    setTransactions(prev => [newTx, ...prev]);
   };
 
   // Handle Tambah Subscription
@@ -2531,44 +2433,52 @@ export default function FinancialFreedomOS() {
       )}
 
       {/* HEADER */}
-      <header className="sticky top-0 z-10 bg-[#191919]/90 backdrop-blur-md border-b border-white/5 px-6 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-900/20">
-            <LayoutDashboard size={18} className="text-white" />
-          </div>
-          <h1 className="text-xl font-bold tracking-tight">Catatan <span className="text-blue-500">Keuangan</span></h1>
-        </div>
-
-        <div className="flex gap-3">
-          {/* FILTER BUTTONS (BARU) */}
-          <div className="bg-[#232323] p-1 rounded-lg border border-white/5 flex text-xs font-medium">
-            <button
-              onClick={() => setDateFilter('thisMonth')}
-              className={`px-3 py-1.5 rounded-md transition-all ${dateFilter === 'thisMonth' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-            >
-              Bulan Ini
-            </button>
-            <button
-              onClick={() => setDateFilter('all')}
-              className={`px-3 py-1.5 rounded-md transition-all ${dateFilter === 'all' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-            >
-              Semua
-            </button>
-          </div>
-
+      <header className="sticky top-0 z-40 bg-[#191919]/90 backdrop-blur-md border-b border-white/5 px-4 py-4 md:px-6 flex justify-between items-center">
+        <div className="bg-[#232323] p-1 rounded-lg border border-white/5 flex text-xs font-medium shrink-0">
           <button
-            onClick={() => setIsModalOpen(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all"
+            onClick={() => setDateFilter('thisMonth')}
+            className={`px-3 py-1.5 rounded-md transition-all whitespace-nowrap ${dateFilter === 'thisMonth' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
           >
-            <Plus size={16} /> Tambah Data
+            Bulan Ini
+          </button>
+          <button
+            onClick={() => setDateFilter('all')}
+            className={`px-3 py-1.5 rounded-md transition-all whitespace-nowrap ${dateFilter === 'all' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+          >
+            Semua
           </button>
         </div>
+
+        {/* BAGIAN 2: TOMBOL TAMBAH (Diletakkan di Ujung Kanan) */}
+        {/* Kita mengeluarkan button ini dari wrapper div sebelumnya agar flex justify-between bekerja sempurna */}
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-900/20 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all whitespace-nowrap"
+        >
+          <Plus size={16} /> <span className="hidden sm:inline">Tambah Data</span><span className="sm:hidden">Baru</span>
+        </button>
+
       </header>
+
+      {/* STYLE UNTUK ANIMASI RADIAL OUTWARDS */}
+      <style dangerouslySetInnerHTML={{
+        __html: `
+        @keyframes flyOutRadial {
+          0% {
+            opacity: 0;
+            transform: translate(var(--x-start), var(--y-start)) scale(0.5);
+          }
+          100% {
+            opacity: 1;
+            transform: translate(0, 0) scale(1);
+          }
+        }
+      `}} />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
 
         {/* STAT CARDS */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
           <StatCard title="Kekayaan Bersih" value={formatCompact(netWorth)} type="neutral" icon={Wallet} subtext="Aset - Kewajiban" />
           <StatCard title="Portofolio" value={formatCompact(totalAssetsValue)} type="pos" icon={TrendingUp} subtext={`${portfolio.length} Aktif`} />
           <StatCard title="Pengeluaran" value={formatCompact(totalExpense)} type="neg" icon={TrendingDown} subtext="Bulan Ini" />
@@ -2583,9 +2493,9 @@ export default function FinancialFreedomOS() {
 
         {/* TOP ROW: WATERFALL & DEBTS */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-[#232323] border border-white/5 rounded-2xl p-6 shadow-lg min-h-[350px]">
+          <div className="lg:col-span-2 bg-[#232323] border border-white/5 rounded-2xl p-4 md:p-6 shadow-lg h-auto">
             <SectionHeader
-              title="Metode Waterfall"
+              title="Metode Waterfall Pengeluaran"
               icon={Target}
               action={
                 <button
@@ -2598,23 +2508,39 @@ export default function FinancialFreedomOS() {
               }
             />
 
-            <div className="flex flex-col md:flex-row gap-6 h-full pb-2">
+            <div className="flex flex-col md:flex-row gap-6 pb-2">
               {/* KOLOM GRAFIK (KIRI) - Memuat 2 Grafik */}
-              <div className="flex-1 grid grid-cols-2 gap-2">
+              <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-2">
 
                 {/* DEFINISI CUSTOM TOOLTIP (Digunakan oleh kedua grafik) */}
                 {(() => {
                   const renderCustomTooltip = ({ active, payload }: any) => {
                     if (active && payload && payload.length) {
                       const data = payload[0].payload;
+
+                      // LOGIKA ANIMASI: Hitung titik awal (lebih dekat ke pusat lingkaran)
+                      const RADIAN = Math.PI / 180;
+                      // Kita gunakan -40px mundur ke arah pusat sebagai titik start
+                      const startOffset = -40;
+                      const xOff = startOffset * Math.cos(-hoverAngle * RADIAN);
+                      const yOff = startOffset * Math.sin(-hoverAngle * RADIAN);
+
                       return (
-                        <div className="bg-[#1a1a1a] border border-white/10 p-2 rounded-lg shadow-xl transform -translate-x-1/2 -translate-y-1/2 animate-in zoom-in-75 duration-200 fade-in pointer-events-none">
+                        <div
+                          className="bg-[#1a1a1a] border border-white/10 p-2 rounded-lg shadow-xl pointer-events-none"
+                          style={{
+                            // Mengirim koordinat start ke CSS
+                            '--x-start': `${xOff}px`,
+                            '--y-start': `${yOff}px`,
+                            // Menggunakan animasi custom yang kita buat di style tag
+                            animation: 'flyOutRadial 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards'
+                          } as React.CSSProperties}
+                        >
                           <div className="flex items-center gap-2 mb-1">
                             <div className="w-2 h-2 rounded-full" style={{ backgroundColor: data.color || payload[0].fill }}></div>
                             <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">{data.name}</span>
                           </div>
                           <div className="text-sm font-mono font-bold text-white text-center">
-                            {/* Cek apakah ini grafik Ideal (punya %) atau Aktual (punya value) */}
                             {data.value > 100 ? formatCompact(Number(data.value)) : `${data.value}%`}
                           </div>
                         </div>
@@ -2626,10 +2552,12 @@ export default function FinancialFreedomOS() {
                   const handlePieEnter = (data: any) => {
                     const { cx, cy, midAngle, outerRadius } = data;
                     const RADIAN = Math.PI / 180;
-                    const radius = outerRadius + 25;
+                    const radius = outerRadius + 25; // Jarak tooltip dari lingkaran
                     const x = cx + radius * Math.cos(-midAngle * RADIAN);
                     const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
                     setTooltipPos({ x, y });
+                    setHoverAngle(midAngle); // SIMPAN SUDUT ANIMASI
                   };
 
                   return (
