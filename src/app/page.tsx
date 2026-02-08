@@ -215,11 +215,13 @@ const SectionHeader = ({ title, icon: Icon, action }: any) => (
 const InvestmentModule = ({
   positions,
   onAddTrade,
-  onDeleteAsset // <--- Props Baru
+  onDeleteAsset, // <--- Props Baru
+  onUpdatePrice
 }: {
   positions: PortfolioPosition[],
   onAddTrade: () => void,
-  onDeleteAsset: (id: string) => void // <--- Type def
+  onDeleteAsset: (id: string) => void, // <--- Type def
+  onUpdatePrice: (id: string, currentPrice: number) => void;
 }) => {
   const totalValue = positions.reduce((acc, p) => acc + p.currentValue, 0);
 
@@ -269,7 +271,13 @@ const InvestmentModule = ({
                 </td>
                 <td className="py-3 text-right text-gray-300 font-mono">{p.quantity}</td>
                 <td className="py-3 text-right text-gray-300 font-mono">{formatCompact(p.avgBuyPrice)}</td>
-                <td className="py-3 text-right font-bold text-white font-mono">{formatCompact(p.currentValue)}</td>
+                <td
+                  className="py-3 text-right font-bold text-white font-mono cursor-pointer hover:text-blue-400 decoration-dotted underline underline-offset-4"
+                  onClick={() => onUpdatePrice(p.asset.id, p.asset.current_price)}
+                  title="Klik untuk update harga pasar manual"
+                >
+                  {formatCompact(p.currentValue)}
+                </td>
                 <td className="py-3 text-right">
                   <div className={`font-mono font-bold ${p.unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                     {p.unrealizedPnL >= 0 ? '+' : ''}{formatCompact(p.unrealizedPnL)}
@@ -398,12 +406,14 @@ const TransactionModal = ({
   isOpen,
   onClose,
   onSuccess,
-  initialData = null // Prop baru untuk data edit
+  initialData = null,
+  userId // <--- PROPS BARU
 }: {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (t: Transaction, action: 'create' | 'update') => void; // Update signature
+  onSuccess: (t: Transaction, action: 'create' | 'update') => void;
   initialData?: Transaction | null;
+  userId?: string; // <--- TYPE DEF
 }) => {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -416,11 +426,9 @@ const TransactionModal = ({
     financial_tag: 'needs' as FinancialTag | ''
   });
 
-  // Effect: Isi form jika mode Edit (initialData ada), atau Reset jika mode Tambah
   useEffect(() => {
     if (isOpen) {
       if (initialData) {
-        // MODE EDIT
         setFormData({
           title: initialData.title,
           amount: String(initialData.amount),
@@ -430,7 +438,6 @@ const TransactionModal = ({
           financial_tag: initialData.financial_tag || ''
         });
       } else {
-        // MODE TAMBAH (RESET)
         setFormData({
           title: '',
           amount: '',
@@ -462,17 +469,22 @@ const TransactionModal = ({
     try {
       if (!formData.title || !formData.amount) throw new Error("Mohon lengkapi data");
 
+      // CEK LOGIN (Kecuali Mock Mode)
+      if (!USE_MOCK_DATA && !userId) {
+        throw new Error("Anda harus login untuk menyimpan data.");
+      }
+
       const payload = {
         title: formData.title,
         amount: Number(formData.amount),
         date: formData.date,
         type: formData.type,
         category: formData.category,
-        financial_tag: formData.type === 'income' ? null : formData.financial_tag
+        financial_tag: formData.type === 'income' ? null : formData.financial_tag,
+        user_id: userId // <--- INJECT USER ID
       };
 
       if (USE_MOCK_DATA) {
-        // --- MOCK ---
         setTimeout(() => {
           const mockResponse = { ...payload, id: isEditMode ? initialData.id : Math.random().toString() };
           onSuccess(mockResponse as Transaction, isEditMode ? 'update' : 'create');
@@ -480,11 +492,9 @@ const TransactionModal = ({
           setIsLoading(false);
         }, 500);
       } else {
-        // --- REAL SUPABASE ---
         let data, error;
 
         if (isEditMode) {
-          // UPDATE
           const res = await supabase
             .from('transactions')
             .update(payload)
@@ -494,7 +504,6 @@ const TransactionModal = ({
           data = res.data;
           error = res.error;
         } else {
-          // INSERT
           const res = await supabase
             .from('transactions')
             .insert([payload])
@@ -522,7 +531,6 @@ const TransactionModal = ({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
       <div className="bg-[#1E1E1E] border border-white/10 rounded-3xl w-full max-w-md shadow-2xl relative flex flex-col max-h-[90vh]">
-
         <div className="px-6 py-5 border-b border-white/5 flex justify-between items-center bg-[#252525] rounded-t-3xl">
           <h2 className="text-lg font-bold text-white flex items-center gap-2">
             {isEditMode ? <Edit2 size={18} className="text-yellow-500" /> : <Plus size={18} className="text-blue-500" />}
@@ -533,7 +541,6 @@ const TransactionModal = ({
 
         <div className="p-6 overflow-y-auto custom-scrollbar">
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Tipe Switcher */}
             <div className="p-1 bg-black/40 rounded-xl flex border border-white/5">
               {(['expense', 'income'] as const).map((t) => (
                 <button
@@ -551,7 +558,6 @@ const TransactionModal = ({
               ))}
             </div>
 
-            {/* Nominal */}
             <div>
               <label className={labelClass}>Nominal (IDR)</label>
               <div className="relative">
@@ -563,7 +569,6 @@ const TransactionModal = ({
               </div>
             </div>
 
-            {/* Judul & Tanggal */}
             <div className="space-y-4">
               <div>
                 <label className={labelClass}>Judul</label>
@@ -575,12 +580,10 @@ const TransactionModal = ({
               </div>
             </div>
 
-            {/* Kategori & Tag */}
             <div className="grid grid-cols-1 gap-4">
               <div>
                 <label className={labelClass}>Kategori</label>
                 <select className={inputClass} value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}>
-                  {/* Opsi disederhanakan untuk contoh */}
                   <option value="Makanan">Makanan & Minuman</option>
                   <option value="Transportasi">Transportasi</option>
                   <option value="Rumah">Rumah & Sewa</option>
@@ -617,7 +620,7 @@ const TransactionModal = ({
 // ==========================================
 // 5.6. NEW COMPONENT: SUBSCRIPTION MODAL
 // ==========================================
-const SubscriptionModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean; onClose: () => void; onSuccess: (s: Subscription) => void }) => {
+const SubscriptionModal = ({ isOpen, onClose, onSuccess, userId }: { isOpen: boolean; onClose: () => void; onSuccess: (s: Subscription) => void; userId?: string }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -635,6 +638,7 @@ const SubscriptionModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean; on
 
     try {
       if (!formData.name || !formData.cost) throw new Error("Lengkapi data");
+      if (!USE_MOCK_DATA && !userId) throw new Error("Login diperlukan.");
 
       const newSub = {
         name: formData.name,
@@ -642,18 +646,17 @@ const SubscriptionModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean; on
         billing_cycle: formData.billing_cycle,
         next_payment_date: formData.next_payment_date,
         category: formData.category,
-        is_active: true
+        is_active: true,
+        user_id: userId // <--- INJECT USER ID
       };
 
       if (USE_MOCK_DATA) {
-        // SIMULASI MOCK
         setTimeout(() => {
           onSuccess({ ...newSub, id: Math.random().toString() } as Subscription);
           onClose();
           setIsLoading(false);
         }, 500);
       } else {
-        // REAL SUPABASE
         const { data, error } = await supabase.from('subscriptions').insert([newSub]).select().single();
         if (error) throw error;
         onSuccess(data as Subscription);
@@ -676,8 +679,8 @@ const SubscriptionModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean; on
           <h2 className="text-lg font-bold text-white flex items-center gap-2"><RotateCcw size={20} className="text-yellow-500" /> Tambah Langganan</h2>
           <button onClick={onClose}><X size={18} className="text-gray-500 hover:text-white" /></button>
         </div>
-
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* ... Input forms sama seperti sebelumnya ... */}
           <div>
             <label className={labelClass}>Nama Layanan</label>
             <input type="text" className={inputClass} placeholder="Netflix, Spotify, AWS..." value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
@@ -715,17 +718,18 @@ const SubscriptionModal = ({ isOpen, onClose, onSuccess }: { isOpen: boolean; on
 const DebtPaymentModal = ({
   debt,
   onClose,
-  onSuccess
+  onSuccess,
+  userId // <--- PROPS BARU
 }: {
   debt: Debt | null;
   onClose: () => void;
   onSuccess: (debtId: string, amount: number, transaction: Transaction) => void;
+  userId?: string; // <--- TYPE DEF
 }) => {
   const [amount, setAmount] = useState<number | ''>('');
   const [percentage, setPercentage] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Reset state saat debt berubah
   useEffect(() => {
     if (debt) {
       setAmount('');
@@ -736,9 +740,8 @@ const DebtPaymentModal = ({
   if (!debt) return null;
 
   const remaining = debt.total_amount - debt.paid_amount;
-  const isPayable = debt.type === 'payable'; // True = Hutang (Kita bayar), False = Piutang (Teman bayar ke kita)
+  const isPayable = debt.type === 'payable';
 
-  // 1. Handle Slider Change (Geser Slider -> Update Angka)
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const pct = Number(e.target.value);
     setPercentage(pct);
@@ -746,10 +749,9 @@ const DebtPaymentModal = ({
     setAmount(calculatedAmount);
   };
 
-  // 2. Handle Input Change (Ketik Angka -> Update Slider)
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = Number(e.target.value);
-    if (val > remaining) return; // Prevent overpay logic visually
+    if (val > remaining) return;
     setAmount(val);
     const pct = remaining > 0 ? (val / remaining) * 100 : 0;
     setPercentage(Math.min(100, Math.max(0, pct)));
@@ -758,18 +760,16 @@ const DebtPaymentModal = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!amount || Number(amount) <= 0) return alert("Masukkan nominal pembayaran");
+
+    // GUARD: Cek Login
+    if (!USE_MOCK_DATA && !userId) return alert("Login diperlukan.");
+
     setIsLoading(true);
 
     const finalAmount = Number(amount);
-
-    // Tentukan Judul & Tipe Transaksi Otomatis
-    const txTitle = isPayable
-      ? `Bayar Cicilan: ${debt.name}`
-      : `Terima Pembayaran: ${debt.name}`;
-
+    const txTitle = isPayable ? `Bayar Cicilan: ${debt.name}` : `Terima Pembayaran: ${debt.name}`;
     const txType: TransactionType = isPayable ? 'expense' : 'income';
     const txCategory = isPayable ? 'Cicilan Utang' : 'Pelunasan Piutang';
-    // Jika Piutang cair, itu jadi Income (bisa masuk Savings/Lainnya), jika Hutang itu Liabilities
     const txTag: FinancialTag | null = isPayable ? 'liabilities' : null;
 
     const transactionPayload = {
@@ -778,12 +778,12 @@ const DebtPaymentModal = ({
       date: new Date().toISOString().split('T')[0],
       type: txType,
       category: txCategory,
-      financial_tag: txTag
+      financial_tag: txTag,
+      user_id: userId // <--- INJECT USER ID
     };
 
     try {
       if (USE_MOCK_DATA) {
-        // MOCK SIMULATION
         setTimeout(() => {
           const mockTx = { ...transactionPayload, id: Math.random().toString() } as Transaction;
           onSuccess(debt.id, finalAmount, mockTx);
@@ -791,7 +791,6 @@ const DebtPaymentModal = ({
           setIsLoading(false);
         }, 800);
       } else {
-        // REAL SUPABASE
         // 1. Update Debt
         const { error: debtError } = await supabase
           .from('debts')
@@ -820,8 +819,6 @@ const DebtPaymentModal = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
       <div className="bg-[#1E1E1E] border border-white/10 rounded-3xl w-full max-w-md shadow-2xl relative p-6 animate-in fade-in zoom-in duration-200">
-
-        {/* Header */}
         <div className="flex justify-between items-center mb-6 border-b border-white/5 pb-4">
           <div>
             <h2 className="text-lg font-bold text-white flex items-center gap-2">
@@ -834,59 +831,31 @@ const DebtPaymentModal = ({
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-
-          {/* Info Sisa Utang */}
           <div className="bg-black/30 rounded-xl p-4 flex justify-between items-center border border-white/5">
             <span className="text-xs text-gray-400 uppercase font-bold">Sisa {isPayable ? 'Utang' : 'Piutang'}</span>
             <span className="text-lg font-mono font-bold text-white">{formatCompact(remaining)}</span>
           </div>
 
-          {/* Slider Section */}
           <div className="space-y-2">
             <div className="flex justify-between text-xs text-gray-400 font-bold mb-1">
               <span>0%</span>
               <span className="text-blue-400">{percentage.toFixed(0)}%</span>
               <span>100%</span>
             </div>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value={percentage}
-              onChange={handleSliderChange}
-              className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500 hover:accent-blue-400 transition-all"
-            />
+            <input type="range" min="0" max="100" step="1" value={percentage} onChange={handleSliderChange} className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500 hover:accent-blue-400 transition-all" />
           </div>
 
-          {/* Input Nominal */}
           <div>
             <label className="block text-[11px] text-gray-400 mb-1.5 uppercase font-bold">Nominal Pembayaran (IDR)</label>
             <div className="relative">
               <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 font-mono">Rp</span>
-              <input
-                type="number"
-                className="w-full bg-[#151515] border border-white/10 rounded-xl p-3 pl-10 text-white focus:border-blue-500 focus:outline-none text-lg font-mono font-bold"
-                placeholder="0"
-                value={amount}
-                onChange={handleAmountChange}
-                required
-              />
+              <input type="number" className="w-full bg-[#151515] border border-white/10 rounded-xl p-3 pl-10 text-white focus:border-blue-500 focus:outline-none text-lg font-mono font-bold" placeholder="0" value={amount} onChange={handleAmountChange} required />
             </div>
           </div>
 
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={isLoading || Number(amount) <= 0}
-            className={`w-full font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg ${isPayable
-              ? 'bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 shadow-orange-900/20'
-              : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 shadow-green-900/20'
-              } disabled:opacity-50 disabled:cursor-not-allowed`}
-          >
+          <button type="submit" disabled={isLoading || Number(amount) <= 0} className={`w-full font-bold py-3.5 rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg ${isPayable ? 'bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 shadow-orange-900/20' : 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 shadow-green-900/20'} disabled:opacity-50 disabled:cursor-not-allowed`}>
             {isLoading ? 'Memproses...' : (isPayable ? 'Bayar Sekarang' : 'Catat Penerimaan')}
           </button>
-
         </form>
       </div>
     </div>
@@ -894,7 +863,7 @@ const DebtPaymentModal = ({
 };
 
 // ==========================================
-// 5.8. UPDATED: TRADE ASSET MODAL (SUPPORT HISTORICAL DATA)
+// 5.8. UPDATED: TRADE ASSET MODAL
 // ==========================================
 
 const TradeModal = ({
@@ -902,14 +871,15 @@ const TradeModal = ({
   onClose,
   onSuccess,
   assets,
-  portfolio
+  portfolio,
+  userId // <--- NEW PROP
 }: {
   isOpen: boolean;
   onClose: () => void;
-  // Perhatikan update tipe di sini: transaction bisa undefined/null
   onSuccess: (trade: Trade, transaction: Transaction | null, newAsset?: Asset) => void;
   assets: Asset[];
   portfolio: PortfolioPosition[];
+  userId?: string; // <--- TYPE DEF
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [type, setType] = useState<'BUY' | 'SELL'>('BUY');
@@ -973,6 +943,9 @@ const TradeModal = ({
     e.preventDefault();
     if (quantity <= 0 || price <= 0) return alert("Mohon isi jumlah dan harga dengan benar.");
 
+    // GUARD: Cek Login
+    if (!USE_MOCK_DATA && !userId) return alert("Login diperlukan untuk menyimpan data investasi.");
+
     if (type === 'SELL') {
       if (!formData.asset_id) return alert("Pilih aset yang ingin dijual.");
       if (quantity > maxSellable) return alert(`Saldo tidak cukup. Max: ${formatCompact(maxSellable)}`);
@@ -986,7 +959,7 @@ const TradeModal = ({
       let finalAssetId = formData.asset_id;
       let finalAssetData: Asset | undefined = undefined;
 
-      // STEP A: Handle Asset Creation
+      // STEP A: Handle Asset Creation (Jika BUY asset baru)
       if (type === 'BUY') {
         const existingAsset = assets.find(a => a.ticker.toUpperCase() === formData.ticker.toUpperCase());
         if (existingAsset) {
@@ -997,7 +970,8 @@ const TradeModal = ({
             ticker: formData.ticker.toUpperCase(),
             name: formData.name,
             class: formData.class,
-            current_price: price
+            current_price: price,
+            user_id: userId // <--- INJECT USER ID KE TABLE ASSETS
           };
 
           if (USE_MOCK_DATA) {
@@ -1021,11 +995,11 @@ const TradeModal = ({
         quantity: quantity,
         price: price,
         date: formData.date,
-        fee: 0
+        fee: 0,
+        user_id: userId // <--- INJECT USER ID KE TABLE TRADES
       };
 
       // STEP C: Insert Transaction (HANYA JIKA BUKAN DATA HISTORIS)
-      // Jika isHistorical = true, kita SKIP langkah ini agar cashflow tidak berkurang.
       let transactionResult: Transaction | null = null;
 
       if (!isHistorical) {
@@ -1036,7 +1010,8 @@ const TradeModal = ({
           type: type === 'BUY' ? 'expense' : 'income' as TransactionType,
           category: type === 'BUY' ? 'Investasi' : 'Profit Investasi',
           financial_tag: 'savings' as FinancialTag,
-          reference_type: 'trade'
+          reference_type: 'trade',
+          user_id: userId // <--- INJECT USER ID KE TABLE TRANSACTIONS
         };
 
         if (USE_MOCK_DATA) {
@@ -1595,25 +1570,18 @@ const FinancialGoalsWidget = ({
 const GoalModal = ({
   isOpen,
   onClose,
-  onSuccess
+  onSuccess,
+  userId // <--- PROPS BARU
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (goal: Goal) => void;
+  userId?: string; // <--- TYPE DEF
 }) => {
   const [isLoading, setIsLoading] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    target_amount: '',
-    current_amount: '',
-    emoji: '🎯',
-    due_date: ''
-  });
-
-  // Pilihan Emoji Cepat
+  const [formData, setFormData] = useState({ name: '', target_amount: '', current_amount: '', emoji: '🎯', due_date: '' });
   const commonEmojis = ['🏠', '🚗', '💍', '👶', '💻', '📱', '✈️', '🎓', '🏥', '💰', '🕋', '🏖️'];
 
-  // Reset form saat modal dibuka
   useEffect(() => {
     if (isOpen) {
       setFormData({ name: '', target_amount: '', current_amount: '', emoji: '🎯', due_date: '' });
@@ -1629,36 +1597,28 @@ const GoalModal = ({
 
     try {
       if (!formData.name || !formData.target_amount) throw new Error("Nama dan Target wajib diisi");
+      if (!USE_MOCK_DATA && !userId) throw new Error("Login diperlukan");
 
       const payload = {
         name: formData.name,
         target_amount: Number(formData.target_amount),
         current_amount: Number(formData.current_amount) || 0,
-        emoji: formData.emoji || '🎯', // Default jika kosong
-        due_date: formData.due_date || null
+        emoji: formData.emoji || '🎯',
+        due_date: formData.due_date || null,
+        user_id: userId // <--- INJECT USER ID
       };
 
       if (USE_MOCK_DATA) {
-        setTimeout(() => {
-          onSuccess({ ...payload, id: Math.random().toString() } as Goal);
-          setIsLoading(false);
-          onClose(); // Pastikan menutup modal
-        }, 500);
+        setTimeout(() => { onSuccess({ ...payload, id: Math.random().toString() } as Goal); setIsLoading(false); onClose(); }, 500);
       } else {
         const { data, error } = await supabase.from('goals').insert([payload]).select().single();
         if (error) throw error;
         onSuccess(data as Goal);
         setIsLoading(false);
-        onClose(); // Pastikan menutup modal
+        onClose();
       }
-    } catch (error: any) {
-      alert('Error: ' + error.message);
-      setIsLoading(false);
-    }
+    } catch (error: any) { alert('Error: ' + error.message); setIsLoading(false); }
   };
-
-  const inputClass = "w-full bg-[#151515] border border-white/10 rounded-xl p-3 text-white focus:border-blue-500 focus:outline-none transition-colors text-sm";
-  const labelClass = "block text-[11px] text-gray-400 mb-1.5 uppercase font-bold tracking-wider";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
@@ -1667,75 +1627,28 @@ const GoalModal = ({
           <h2 className="text-lg font-bold text-white flex items-center gap-2"><Target size={20} className="text-blue-500" /> Goal Baru</h2>
           <button onClick={onClose} type="button"><X size={18} className="text-gray-500 hover:text-white" /></button>
         </div>
-
         <form onSubmit={handleSubmit} className="space-y-4">
-
-          {/* Custom Emoji Input Section */}
           <div>
-            <label className={labelClass}>Ikon / Emoji</label>
+            <label className="block text-[11px] text-gray-400 mb-1.5 uppercase font-bold tracking-wider">Ikon / Emoji</label>
             <div className="flex gap-3 mb-3">
-              {/* Input Manual Emoji */}
               <div className="relative w-16 h-14">
-                <input
-                  type="text"
-                  className="w-full h-full bg-[#151515] border border-blue-500 rounded-xl text-center text-3xl focus:outline-none"
-                  value={formData.emoji}
-                  onChange={(e) => setFormData({ ...formData, emoji: e.target.value })}
-                  maxLength={5} // Limit karakter agar tidak terlalu panjang
-                />
+                <input type="text" className="w-full h-full bg-[#151515] border border-blue-500 rounded-xl text-center text-3xl focus:outline-none" value={formData.emoji} onChange={(e) => setFormData({ ...formData, emoji: e.target.value })} maxLength={5} />
                 <div className="absolute -bottom-5 left-0 w-full text-center text-[9px] text-blue-400">Custom</div>
               </div>
-
-              {/* Pilihan Cepat */}
               <div className="flex-1 flex gap-2 overflow-x-auto pb-2 custom-scrollbar items-center">
                 {commonEmojis.map(em => (
-                  <button
-                    key={em}
-                    type="button"
-                    onClick={() => setFormData({ ...formData, emoji: em })}
-                    className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center text-xl transition-all border ${formData.emoji === em
-                      ? 'bg-blue-600 border-blue-400 text-white scale-110 shadow-lg'
-                      : 'bg-white/5 border-transparent hover:bg-white/10'
-                      }`}
-                  >
-                    {em}
-                  </button>
+                  <button key={em} type="button" onClick={() => setFormData({ ...formData, emoji: em })} className={`w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center text-xl transition-all border ${formData.emoji === em ? 'bg-blue-600 border-blue-400 text-white scale-110 shadow-lg' : 'bg-white/5 border-transparent hover:bg-white/10'}`}>{em}</button>
                 ))}
               </div>
             </div>
           </div>
-
-          <div>
-            <label className={labelClass}>Nama Impian</label>
-            <input type="text" className={inputClass} placeholder="Contoh: Rumah Impian, Nikah..." value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required />
-          </div>
-
+          <div><label className="block text-[11px] text-gray-400 mb-1.5 uppercase font-bold tracking-wider">Nama Impian</label><input type="text" className="w-full bg-[#151515] border border-white/10 rounded-xl p-3 text-white focus:border-blue-500 focus:outline-none transition-colors text-sm" placeholder="Contoh: Rumah Impian, Nikah..." value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required /></div>
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className={labelClass}>Target (IDR)</label>
-              <input type="number" className={inputClass} placeholder="0" value={formData.target_amount} onChange={e => setFormData({ ...formData, target_amount: e.target.value })} required />
-            </div>
-            <div>
-              <label className={labelClass}>Sudah Terkumpul</label>
-              <input type="number" className={inputClass} placeholder="0 (Opsional)" value={formData.current_amount} onChange={e => setFormData({ ...formData, current_amount: e.target.value })} />
-            </div>
+            <div><label className="block text-[11px] text-gray-400 mb-1.5 uppercase font-bold tracking-wider">Target (IDR)</label><input type="number" className="w-full bg-[#151515] border border-white/10 rounded-xl p-3 text-white focus:border-blue-500 focus:outline-none transition-colors text-sm" placeholder="0" value={formData.target_amount} onChange={e => setFormData({ ...formData, target_amount: e.target.value })} required /></div>
+            <div><label className="block text-[11px] text-gray-400 mb-1.5 uppercase font-bold tracking-wider">Sudah Terkumpul</label><input type="number" className="w-full bg-[#151515] border border-white/10 rounded-xl p-3 text-white focus:border-blue-500 focus:outline-none transition-colors text-sm" placeholder="0 (Opsional)" value={formData.current_amount} onChange={e => setFormData({ ...formData, current_amount: e.target.value })} /></div>
           </div>
-
-          <div>
-            <label className={labelClass}>Target Tercapai Pada (Opsional)</label>
-            <input type="date" className={`${inputClass} [color-scheme:dark]`} value={formData.due_date} onChange={e => setFormData({ ...formData, due_date: e.target.value })} />
-          </div>
-
-          {/* Action Buttons (Simpan & Batal) */}
-          <div className="flex gap-3 mt-6">
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-900/20 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50"
-            >
-              {isLoading ? 'Menyimpan...' : 'Buat Goal'}
-            </button>
-          </div>
+          <div><label className="block text-[11px] text-gray-400 mb-1.5 uppercase font-bold tracking-wider">Target Tercapai Pada (Opsional)</label><input type="date" className="w-full bg-[#151515] border border-white/10 rounded-xl p-3 text-white focus:border-blue-500 focus:outline-none transition-colors text-sm [color-scheme:dark]" value={formData.due_date} onChange={e => setFormData({ ...formData, due_date: e.target.value })} /></div>
+          <div className="flex gap-3 mt-6"><button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-900/20 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50">{isLoading ? 'Menyimpan...' : 'Buat Goal'}</button></div>
         </form>
       </div>
     </div>
@@ -1749,11 +1662,13 @@ const GoalModal = ({
 const AddSavingsModal = ({
   goal,
   onClose,
-  onSuccess
+  onSuccess,
+  userId // <--- NEW PROP
 }: {
   goal: Goal | null;
   onClose: () => void;
   onSuccess: (goalId: string, amount: number, transaction: Transaction) => void;
+  userId?: string; // <--- TYPE DEF
 }) => {
   const [amount, setAmount] = useState<number | ''>('');
   const [percentage, setPercentage] = useState(0);
@@ -1763,7 +1678,7 @@ const AddSavingsModal = ({
     if (goal) {
       setAmount('');
       setPercentage(0);
-      setIsLoading(false); // Pastikan loading reset saat modal dibuka
+      setIsLoading(false);
     }
   }, [goal]);
 
@@ -1774,8 +1689,7 @@ const AddSavingsModal = ({
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const pct = Number(e.target.value);
     setPercentage(pct);
-    const calculatedAmount = Math.round(remaining * (pct / 100));
-    setAmount(calculatedAmount);
+    setAmount(Math.round(remaining * (pct / 100)));
   };
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1789,7 +1703,10 @@ const AddSavingsModal = ({
     e.preventDefault();
     if (!amount || Number(amount) <= 0) return alert("Masukkan nominal tabungan");
 
-    setIsLoading(true); // Mulai loading
+    // GUARD: Cek Login
+    if (!USE_MOCK_DATA && !userId) return alert("Login diperlukan.");
+
+    setIsLoading(true);
 
     const finalAmount = Number(amount);
     const newCurrentAmount = goal.current_amount + finalAmount;
@@ -1800,7 +1717,8 @@ const AddSavingsModal = ({
       date: new Date().toISOString().split('T')[0],
       type: 'expense' as TransactionType,
       category: 'Tabungan & Investasi',
-      financial_tag: 'savings' as FinancialTag
+      financial_tag: 'savings' as FinancialTag,
+      user_id: userId // <--- INJECT USER ID
     };
 
     try {
@@ -1809,10 +1727,12 @@ const AddSavingsModal = ({
           const mockTx = { ...transactionPayload, id: Math.random().toString() } as Transaction;
           onSuccess(goal.id, finalAmount, mockTx);
           setIsLoading(false);
-          onClose(); // Tutup modal setelah sukses
+          onClose();
         }, 800);
       } else {
         // 1. Update Goal
+        // RLS biasanya mengizinkan update jika user owns the goal, jadi user_id di payload update opsional
+        // tapi user_id di Insert Transaction WAJIB.
         const { error: goalError } = await supabase
           .from('goals')
           .update({ current_amount: newCurrentAmount })
@@ -1829,11 +1749,11 @@ const AddSavingsModal = ({
 
         onSuccess(goal.id, finalAmount, txData as Transaction);
         setIsLoading(false);
-        onClose(); // Tutup modal setelah sukses
+        onClose();
       }
     } catch (error: any) {
       alert("Error: " + error.message);
-      setIsLoading(false); // Matikan loading jika error, jangan tutup modal
+      setIsLoading(false);
     }
   };
 
@@ -1887,7 +1807,6 @@ const AddSavingsModal = ({
             </div>
           </div>
 
-          {/* Action Buttons (Batal & Simpan) */}
           <div className="flex gap-3">
             <button
               type="button"
@@ -1912,17 +1831,19 @@ const AddSavingsModal = ({
 };
 
 // ==========================================
-// 5.14. NEW COMPONENT: CREATE DEBT MODAL
+// 5.14. UPDATED COMPONENT: CREATE DEBT MODAL
 // ==========================================
 
 const DebtModal = ({
   isOpen,
   onClose,
-  onSuccess
+  onSuccess,
+  userId // <--- NEW PROP
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (debt: Debt) => void;
+  userId?: string; // <--- TYPE DEF
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [formData, setFormData] = useState({
@@ -1949,12 +1870,16 @@ const DebtModal = ({
     try {
       if (!formData.name || !formData.total_amount) throw new Error("Nama dan Jumlah wajib diisi");
 
+      // GUARD: Cek Login
+      if (!USE_MOCK_DATA && !userId) throw new Error("Login diperlukan untuk menyimpan data.");
+
       const payload = {
         name: formData.name,
         total_amount: Number(formData.total_amount),
         paid_amount: 0, // Default 0 saat baru dibuat
         type: formData.type,
-        due_date: formData.due_date || null
+        due_date: formData.due_date || null,
+        user_id: userId // <--- INJECT USER ID
       };
 
       if (USE_MOCK_DATA) {
@@ -2044,10 +1969,103 @@ const DebtModal = ({
 };
 
 // ==========================================
+// 5.15. NEW COMPONENT: AUTH MODAL (LOGIN/SIGNUP)
+// ==========================================
+
+const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+
+  if (!isOpen) return null;
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    try {
+      if (mode === 'signup') {
+        const { error } = await supabase.auth.signUp({ email, password });
+        if (error) throw error;
+        alert('Registrasi berhasil! Silakan cek email untuk verifikasi (jika diaktifkan) atau langsung login.');
+        setMode('signin');
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        onClose(); // Tutup modal setelah login sukses
+      }
+    } catch (error: any) {
+      alert(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-md">
+      <div className="bg-[#1E1E1E] border border-white/10 rounded-3xl w-full max-w-sm shadow-2xl p-6">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold text-white">
+            {mode === 'signin' ? 'Login Akun' : 'Daftar Baru'}
+          </h2>
+          <button onClick={onClose}><X size={20} className="text-gray-500 hover:text-white" /></button>
+        </div>
+
+        <form onSubmit={handleAuth} className="space-y-4">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Email</label>
+            <input
+              type="email"
+              required
+              className="w-full bg-[#151515] border border-white/10 rounded-xl p-3 text-white focus:border-blue-500 focus:outline-none"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1 uppercase font-bold">Password</label>
+            <input
+              type="password"
+              required
+              minLength={6}
+              className="w-full bg-[#151515] border border-white/10 rounded-xl p-3 text-white focus:border-blue-500 focus:outline-none"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50 mt-2"
+          >
+            {loading ? 'Memproses...' : (mode === 'signin' ? 'Masuk' : 'Daftar')}
+          </button>
+        </form>
+
+        <div className="mt-4 text-center">
+          <p className="text-xs text-gray-500">
+            {mode === 'signin' ? "Belum punya akun? " : "Sudah punya akun? "}
+            <button
+              onClick={() => setMode(mode === 'signin' ? 'signup' : 'signin')}
+              className="text-blue-400 hover:underline font-bold"
+            >
+              {mode === 'signin' ? "Daftar di sini" : "Login di sini"}
+            </button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
 // 6. MAIN APPLICATION
 // ==========================================
 
 export default function FinancialFreedomOS() {
+  const [user, setUser] = useState<any>(null); // State User
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false); // State Modal Auth
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -2074,51 +2092,91 @@ export default function FinancialFreedomOS() {
   const [selectedGoal, setSelectedGoal] = useState<Goal | null>(null);
   const [isDebtModalOpen, setIsDebtModalOpen] = useState(false);
   const [hoverAngle, setHoverAngle] = useState(0);
+  const handleUpdateAssetPrice = async (assetId: string, currentPrice: number) => {
+    const newPrice = prompt("Masukkan harga pasar terbaru:", String(currentPrice));
+    if (!newPrice) return;
 
-  // Inisialisasi Data dari Supabase (Jika Tersedia)
+    const priceNum = Number(newPrice);
+    if (!priceNum || priceNum <= 0) return;
+
+    try {
+      // Update ke Supabase
+      if (!USE_MOCK_DATA) {
+        const { error } = await supabase
+          .from('assets')
+          .update({ current_price: priceNum })
+          .eq('id', assetId);
+        if (error) throw error;
+      }
+
+      // Update State Lokal (Agar UI langsung berubah & PnL terhitung ulang otomatis)
+      setAssets(prev => prev.map(a => a.id === assetId ? { ...a, current_price: priceNum } : a));
+    } catch (error: any) {
+      alert("Gagal update harga: " + error.message);
+    }
+  };
+
+  // 1. EFFECT: CEK STATUS USER (SUPABASE AUTH)
+  useEffect(() => {
+    // Cek sesi saat ini
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    // Dengarkan perubahan auth (Login/Logout)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // 2. EFFECT: LOAD DATA (HYBRID LOGIC)
   useEffect(() => {
     const loadData = async () => {
-      if (USE_MOCK_DATA) {
-        // MODE 1: MOCK DATA
-        console.log("⚠️ Menggunakan MOCK DATA");
+      // KONDISI A: TIDAK ADA USER (GUEST) -> LOAD MOCK DATA
+      if (!user) {
+        console.log("👤 Guest Mode: Loading Mock Data (Read Only)");
         setTransactions(MOCK_TRANSACTIONS);
         setDebts(MOCK_DEBTS);
         setAssets(MOCK_ASSETS);
         setTrades(MOCK_TRADES);
-        // Pastikan Anda sudah membuat variabel MOCK_SUBSCRIPTIONS di atas (lihat jawaban sebelumnya)
         setSubscriptions(MOCK_SUBSCRIPTIONS || []);
         setGoals(MOCK_GOALS);
-      } else {
-        // MODE 2: SUPABASE DATA
-        if (!supabase) return;
+      }
+      // KONDISI B: ADA USER (LOGIN) -> LOAD REAL DATA BY USER_ID
+      else {
+        console.log("🔐 User Logged In:", user.email);
         try {
-          console.log("🔌 Mengambil DATA REAL dari Supabase...");
+          // Fetch semua tabel filter berdasarkan user_id (jika RLS aktif, ini otomatis, 
+          // tapi kita bisa eksplisit atau biarkan Supabase handle)
 
-          const { data: tx } = await supabase.from('transactions').select('*').order('date', { ascending: false });
+          const { data: tx } = await supabase.from('transactions').select('*').eq('user_id', user.id).order('date', { ascending: false });
           if (tx) setTransactions(tx as any);
 
-          const { data: dt } = await supabase.from('debts').select('*');
+          const { data: dt } = await supabase.from('debts').select('*').eq('user_id', user.id);
           if (dt) setDebts(dt as any);
 
-          const { data: as } = await supabase.from('assets').select('*');
+          const { data: as } = await supabase.from('assets').select('*').eq('user_id', user.id);
           if (as) setAssets(as as any);
 
-          const { data: tr } = await supabase.from('trades').select('*');
+          const { data: tr } = await supabase.from('trades').select('*').eq('user_id', user.id); // Trades biasanya join asset, tapi ini simplified
           if (tr) setTrades(tr as any);
 
-          const { data: sb } = await supabase.from('subscriptions').select('*').eq('is_active', true);
+          const { data: sb } = await supabase.from('subscriptions').select('*').eq('user_id', user.id).eq('is_active', true);
           if (sb) setSubscriptions(sb as any);
 
-          const { data: gl } = await supabase.from('goals').select('*').order('created_at', { ascending: true });
+          const { data: gl } = await supabase.from('goals').select('*').eq('user_id', user.id).order('created_at', { ascending: true });
           if (gl) setGoals(gl as any);
 
         } catch (err) {
-          console.error("Gagal load data:", err);
+          console.error("Gagal load data user:", err);
         }
       }
     };
+
     loadData();
-  }, []); // Run sekali saat mount
+  }, [user]); // Re-run saat status 'user' berubah
 
   // ==========================================
   // HANDLERS (Hybrid Logic)
@@ -2450,13 +2508,43 @@ export default function FinancialFreedomOS() {
         </div>
 
         {/* BAGIAN 2: TOMBOL TAMBAH (Diletakkan di Ujung Kanan) */}
-        {/* Kita mengeluarkan button ini dari wrapper div sebelumnya agar flex justify-between bekerja sempurna */}
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-900/20 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all whitespace-nowrap"
-        >
-          <Plus size={16} /> <span className="hidden sm:inline">Tambah Data</span><span className="sm:hidden">Baru</span>
-        </button>
+        <div className="flex items-center gap-3">
+
+          {/* LOGIC TOMBOL LOGIN / LOGOUT */}
+          {user ? (
+            <div className="flex items-center gap-3">
+              <span className="hidden md:inline text-xs text-gray-400 font-mono">{user.email}</span>
+              <button
+                onClick={() => supabase.auth.signOut()}
+                className="bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-2 rounded-lg text-xs font-bold transition-all border border-red-500/20"
+              >
+                Logout
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setIsAuthModalOpen(true)}
+              className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all border border-white/10"
+            >
+              Login / Daftar
+            </button>
+          )}
+
+          {/* Tombol Tambah Data: Hanya aktif jika Login, jika Guest munculkan Login Modal */}
+          <button
+            onClick={() => {
+              if (!user) {
+                alert("Mode Read-Only: Silakan Login untuk menambah/mengedit data.");
+                setIsAuthModalOpen(true);
+              } else {
+                setIsModalOpen(true);
+              }
+            }}
+            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-900/20 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all whitespace-nowrap"
+          >
+            <Plus size={16} /> <span className="hidden sm:inline">Tambah Data</span><span className="sm:hidden">Baru</span>
+          </button>
+        </div>
 
       </header>
 
@@ -2773,6 +2861,7 @@ export default function FinancialFreedomOS() {
               positions={portfolio}
               onAddTrade={() => setIsTradeModalOpen(true)}
               onDeleteAsset={handleDeleteAsset}
+              onUpdatePrice={handleUpdateAssetPrice}
             />
           </div>
 
@@ -2847,6 +2936,7 @@ export default function FinancialFreedomOS() {
           onClose={() => { setIsModalOpen(false); setEditingTransaction(null); }} // Reset edit saat close
           onSuccess={handleSaveTransaction}
           initialData={editingTransaction}
+          userId={user?.id}
         />
 
         {/* 2. Modal Subscription (BARU) */}
@@ -2854,6 +2944,7 @@ export default function FinancialFreedomOS() {
           isOpen={isSubModalOpen}
           onClose={() => setIsSubModalOpen(false)}
           onSuccess={handleNewSubscription}
+          userId={user?.id}
         />
 
         {/* 3. Modal Pembayaran Utang (BARU) */}
@@ -2861,6 +2952,7 @@ export default function FinancialFreedomOS() {
           debt={selectedDebt}
           onClose={() => setSelectedDebt(null)}
           onSuccess={handleDebtPaymentSuccess}
+          userId={user?.id}
         />
 
         {/* 4. MODAL TRADE (Tambahkan kode ini di bawah modal lainnya) */}
@@ -2870,6 +2962,7 @@ export default function FinancialFreedomOS() {
           onSuccess={handleNewTrade}
           assets={assets}
           portfolio={portfolio}
+          userId={user?.id}
         />
 
         {/* 5. MODAL SETTINGS WATERFALL (BARU) */}
@@ -2894,6 +2987,7 @@ export default function FinancialFreedomOS() {
           isOpen={isGoalModalOpen}
           onClose={() => setIsGoalModalOpen(false)}
           onSuccess={handleCreateGoal}
+          userId={user?.id}
         />
 
         {/* 8. MODAL TAMBAH TABUNGAN (SLIDER) */}
@@ -2904,6 +2998,7 @@ export default function FinancialFreedomOS() {
             setSelectedGoal(null); // <--- WAJIB DITAMBAHKAN: Agar modal tahu datanya sudah hilang
           }}
           onSuccess={handleSavingsSuccess}
+          userId={user?.id}
         />
 
         {/* 9. MODAL TAMBAH UTANG (BARU) */}
@@ -2911,6 +3006,13 @@ export default function FinancialFreedomOS() {
           isOpen={isDebtModalOpen}
           onClose={() => setIsDebtModalOpen(false)}
           onSuccess={handleCreateDebt}
+          userId={user?.id}
+        />
+
+        {/* 10. AUTH MODAL (BARU) */}
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
         />
 
       </main>
