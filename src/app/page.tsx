@@ -10,7 +10,7 @@ import {
   Banknote, Target, ShieldAlert, LayoutDashboard,
   Settings, Trash2, Edit2, X, Database, ShieldCheck,
   RotateCcw, CalendarDays, ArrowUpDown,
-  Landmark, Zap, List
+  Landmark, Zap, List, Sparkles, Bot, RefreshCw
 } from 'lucide-react';
 
 import { createClient } from '@supabase/supabase-js';
@@ -96,6 +96,14 @@ interface Goal {
   current_amount: number;
   emoji: string; // Kita gunakan Emoji agar user bebas berekspresi
   due_date?: string;
+}
+
+interface UserSettings {
+  user_id: string;
+  needs_pct: number;
+  wants_pct: number;
+  savings_pct: number;
+  liabilities_pct: number;
 }
 
 // ==========================================
@@ -2060,11 +2068,64 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
 };
 
 // ==========================================
+// 5.16. NEW COMPONENT: AI INSIGHT WIDGET
+// ==========================================
+
+const AIInsightWidget = ({
+  insight,
+  isLoading,
+  onGenerate
+}: {
+  insight: string;
+  isLoading: boolean;
+  onGenerate: () => void;
+}) => {
+  return (
+    <div className="bg-gradient-to-r from-purple-900/40 to-blue-900/40 border border-purple-500/30 rounded-2xl p-6 shadow-lg mb-6 relative overflow-hidden">
+      {/* Background Decoration */}
+      <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
+
+      <div className="flex justify-between items-start mb-4 relative z-10">
+        <div className="flex items-center gap-2">
+          <div className="p-2 bg-purple-500/20 text-purple-400 rounded-lg">
+            <Bot size={20} />
+          </div>
+          <h3 className="text-white font-bold text-lg flex items-center gap-2">
+            AI Financial Advisor <Sparkles size={14} className="text-yellow-400 animate-pulse" />
+          </h3>
+        </div>
+        <button
+          onClick={onGenerate}
+          disabled={isLoading}
+          className="flex items-center gap-2 text-xs font-bold bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-all disabled:opacity-50"
+        >
+          {isLoading ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+          {isLoading ? 'Menganalisis...' : 'Refresh Analisis'}
+        </button>
+      </div>
+
+      <div className="relative z-10">
+        {insight ? (
+          <div className="text-gray-200 text-sm leading-relaxed whitespace-pre-line animate-in fade-in slide-in-from-bottom-2 duration-500">
+            {insight}
+          </div>
+        ) : (
+          <div className="text-gray-500 text-sm italic flex flex-col gap-2">
+            <p>Klik tombol refresh untuk mendapatkan analisis keuangan pribadi berdasarkan data transaksi, utang, dan investasi Anda saat ini.</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ==========================================
 // 6. MAIN APPLICATION
 // ==========================================
 
 export default function FinancialFreedomOS() {
   const [user, setUser] = useState<any>(null); // State User
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false); // State Modal Auth
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
@@ -2092,6 +2153,8 @@ export default function FinancialFreedomOS() {
   const [selectedGoal, setSelectedGoal] = useState<Goal | null>(null);
   const [isDebtModalOpen, setIsDebtModalOpen] = useState(false);
   const [hoverAngle, setHoverAngle] = useState(0);
+  const [aiInsight, setAiInsight] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
   const handleUpdateAssetPrice = async (assetId: string, currentPrice: number) => {
     const newPrice = prompt("Masukkan harga pasar terbaru:", String(currentPrice));
     if (!newPrice) return;
@@ -2116,18 +2179,18 @@ export default function FinancialFreedomOS() {
     }
   };
 
-  // 1. EFFECT: CEK STATUS USER (SUPABASE AUTH)
+  // 1. EFFECT: CEK STATUS USER
   useEffect(() => {
-    // Cek sesi saat ini
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user ?? null);
-    });
-
-    // Dengarkan perubahan auth (Login/Logout)
+      setIsAuthChecking(false); // [BARU] Stop loading setelah cek selesai
+    };
+    checkSession();
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      setIsAuthChecking(false); // [BARU] Stop loading jika status berubah
     });
-
     return () => subscription.unsubscribe();
   }, []);
 
@@ -2169,18 +2232,146 @@ export default function FinancialFreedomOS() {
           const { data: gl } = await supabase.from('goals').select('*').eq('user_id', user.id).order('created_at', { ascending: true });
           if (gl) setGoals(gl as any);
 
+          // [BARU] LOAD USER SETTINGS
+          const { data: settings } = await supabase
+            .from('user_settings')
+            .select('*')
+            .eq('user_id', user.id)
+            .maybeSingle();
+
+          if (settings) {
+            setIdealAllocation({
+              needs: settings.needs_pct,
+              wants: settings.wants_pct,
+              savings: settings.savings_pct,
+              liabilities: settings.liabilities_pct
+            });
+          }
+
         } catch (err) {
           console.error("Gagal load data user:", err);
         }
       }
     };
 
-    loadData();
-  }, [user]); // Re-run saat status 'user' berubah
+    if (!isAuthChecking) {
+      loadData();
+    }
+  }, [user, isAuthChecking]); // Re-run saat status 'user' berubah
 
   // ==========================================
   // HANDLERS (Hybrid Logic)
   // ==========================================
+
+  // [BARU] HANDLER SAVE SETTINGS KE DB
+  const handleSaveWaterfallSettings = async (newSettings: typeof idealAllocation) => {
+    // 1. Update Tampilan (Lokal)
+    setIdealAllocation(newSettings);
+
+    // 2. Simpan ke Database (Jika Login)
+    if (user && !USE_MOCK_DATA) {
+      const { error } = await supabase.from('user_settings').upsert({
+        user_id: user.id,
+        needs_pct: newSettings.needs,
+        wants_pct: newSettings.wants,
+        savings_pct: newSettings.savings,
+        liabilities_pct: newSettings.liabilities
+      }, { onConflict: 'user_id' });
+
+      if (error) {
+        alert("Gagal menyimpan pengaturan: " + error.message);
+      }
+    }
+  };
+
+  // --- AI HANDLER (UPDATED: LEBIH NATURAL & ASIK) ---
+  const generateAIInsight = async () => {
+    setIsAiLoading(true);
+
+    const apiKey = process.env.NEXT_PUBLIC_GROQ_API_KEY;
+    if (!apiKey || apiKey === 'undefined') {
+      alert("API Key Groq belum disetting! Pastikan ada di .env.local dan restart server.");
+      setIsAiLoading(false);
+      return;
+    }
+
+    // Siapkan Data (Sama seperti sebelumnya)
+    const safeGoals = goals.map(g => {
+      const pct = g.target_amount > 0 ? (g.current_amount / g.target_amount * 100) : 0;
+      return `${g.name} (${pct.toFixed(0)}%)`;
+    });
+
+    const contextData = {
+      netWorth: formatCompact(netWorth),
+      cashFlow: formatCompact(cashFlow),
+      assets: formatCompact(totalAssetsValue),
+      debt: formatCompact(debts.reduce((acc, d) => acc + (d.total_amount - d.paid_amount), 0)),
+      expenses: filteredTransactions
+        .filter(t => t.type === 'expense')
+        .slice(0, 3) // Ambil 3 aja biar hemat token
+        .map(t => `${t.title} (${formatCompact(t.amount)})`),
+      budget: waterfallData.map(w => `${w.name}: ${formatCompact(w.value)}`),
+      goals: safeGoals
+    };
+
+    // --- PROMPT BARU: PERSONA "FINANCIAL BESTIE" ---
+    const prompt = `
+      Bertindaklah sebagai penasihat keuangan pribadi yang profesional namun ramah.
+      Analisis ringkasan data keuangan ini: 
+      ${JSON.stringify(contextData)}
+
+      Berikan 1 paragraf singkat (maksimal 3-4 kalimat) yang berisi:
+      1. Evaluasi cepat kondisi keuangan saat ini (Cashflow/Net Worth).
+      2. Peringatan jika ada pengeluaran boros atau utang yang mengkhawatirkan.
+      3. Satu saran aksi konkret untuk perbaikan atau investasi.
+
+      Gunakan bahasa Indonesia yang baku namun mengalir (tidak kaku).
+      Gunakan emoji agar menarik.
+      Jangan basa-basi atau memuji berlebihan. Langsung ke inti masalah dan solusi.
+      Jangan gunakan markdown
+    `;
+
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: 'moonshotai/kimi-k2-instruct-0905',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.8, // Sedikit dinaikkan agar lebih kreatif/variatif
+          max_tokens: 500
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData?.error?.message || `API Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (data.choices && data.choices[0]) {
+        setAiInsight(data.choices[0].message.content);
+      } else {
+        throw new Error('No valid response from AI');
+      }
+    } catch (error: any) {
+      console.error("AI Error:", error);
+      setAiInsight(`Waduh, otakku lagi error nih. 🤯 Coba refresh sebentar lagi ya! (${error.message})`);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  // Trigger AI otomatis saat pertama kali data siap (Optional, matikan jika ingin manual saja)
+  useEffect(() => {
+    if (!isAuthChecking && user && transactions.length > 0 && !aiInsight) {
+      // Uncomment baris di bawah jika ingin auto-generate saat load
+      generateAIInsight();
+    }
+  }, [isAuthChecking, user, transactions.length]);
 
   // Handler Sukses Tambah Utang
   const handleCreateDebt = (newDebt: Debt) => {
@@ -2480,6 +2671,18 @@ export default function FinancialFreedomOS() {
     setTooltipPos({ x, y });
   };
 
+  // [BARU] RENDER LOADING SCREEN
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen bg-[#191919] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+          <p className="text-gray-400 text-sm font-mono animate-pulse">Memuat Data...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#191919] text-white font-sans selection:bg-blue-500/30 pb-20 md:pb-0">
 
@@ -2564,6 +2767,13 @@ export default function FinancialFreedomOS() {
       `}} />
 
       <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
+
+        {/* --- AI INSIGHT WIDGET (PALING ATAS) --- */}
+        <AIInsightWidget
+          insight={aiInsight}
+          isLoading={isAiLoading}
+          onGenerate={generateAIInsight}
+        />
 
         {/* STAT CARDS */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
@@ -2970,7 +3180,7 @@ export default function FinancialFreedomOS() {
           isOpen={isWaterfallSettingsOpen}
           onClose={() => setIsWaterfallSettingsOpen(false)}
           currentSettings={idealAllocation}
-          onSave={setIdealAllocation}
+          onSave={handleSaveWaterfallSettings}
         />
 
         {/* 6. MODAL DATABASE (BARU) */}
