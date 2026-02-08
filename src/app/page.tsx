@@ -19,7 +19,7 @@ const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 // UBAH INI KE 'false' JIKA INGIN MENGGUNAKAN DATA SUPABASE ASLI
-const USE_MOCK_DATA = true;
+const USE_MOCK_DATA = false;
 
 // ==========================================
 // 1. TYPE DEFINITIONS & SCHEMAS (Sync with SQL)
