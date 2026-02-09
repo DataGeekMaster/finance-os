@@ -110,6 +110,32 @@ interface UserSettings {
 // 2. CONSTANTS & THEME
 // ==========================================
 
+const INCOME_CATEGORIES = [
+  'Uang jajan dari ortu',
+  'Gaji',
+  'Bonus / Tunjangan',
+  'Profit Bisnis',
+  'Dividen / Investasi',
+  'Pemberian / Hadiah',
+  'Penjualan Aset',
+  'Lainnya'
+];
+
+const EXPENSE_CATEGORIES = [
+  'Makanan & Minuman',
+  'Transportasi',
+  'Rumah & Sewa',
+  'Listrik, Air & Data',
+  'Belanja & Kebutuhan',
+  'Kesehatan',
+  'Pendidikan',
+  'Hiburan',
+  'Cicilan Utang',
+  'Investasi (Keluar)',
+  'Amal / Donasi',
+  'Lainnya'
+];
+
 const COLORS = {
   needs: '#3b82f6',
   wants: '#8b5cf6',
@@ -415,22 +441,23 @@ const TransactionModal = ({
   onClose,
   onSuccess,
   initialData = null,
-  userId // <--- PROPS BARU
+  userId
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (t: Transaction, action: 'create' | 'update') => void;
   initialData?: Transaction | null;
-  userId?: string; // <--- TYPE DEF
+  userId?: string;
 }) => {
   const [isLoading, setIsLoading] = useState(false);
 
+  // Default state dengan kategori awal yang valid
   const [formData, setFormData] = useState({
     title: '',
     amount: '',
     date: new Date().toISOString().split('T')[0],
     type: 'expense' as TransactionType,
-    category: 'Makanan',
+    category: EXPENSE_CATEGORIES[0], // Default category
     financial_tag: 'needs' as FinancialTag | ''
   });
 
@@ -446,12 +473,13 @@ const TransactionModal = ({
           financial_tag: initialData.financial_tag || ''
         });
       } else {
+        // Reset form saat modal dibuka untuk tambah data baru
         setFormData({
           title: '',
           amount: '',
           date: new Date().toISOString().split('T')[0],
           type: 'expense',
-          category: 'Makanan',
+          category: EXPENSE_CATEGORIES[0],
           financial_tag: 'needs'
         });
       }
@@ -461,12 +489,14 @@ const TransactionModal = ({
   if (!isOpen) return null;
   const isEditMode = !!initialData;
 
+  // Handler saat tombol Pemasukan/Pengeluaran diklik
   const handleTypeChange = (newType: TransactionType) => {
     setFormData(prev => ({
       ...prev,
       type: newType,
       financial_tag: newType === 'income' ? '' : 'needs',
-      category: newType === 'income' ? 'Gaji' : 'Makanan'
+      // Reset kategori agar sesuai dengan tipe baru
+      category: newType === 'income' ? INCOME_CATEGORIES[0] : EXPENSE_CATEGORIES[0]
     }));
   };
 
@@ -477,7 +507,6 @@ const TransactionModal = ({
     try {
       if (!formData.title || !formData.amount) throw new Error("Mohon lengkapi data");
 
-      // CEK LOGIN (Kecuali Mock Mode)
       if (!USE_MOCK_DATA && !userId) {
         throw new Error("Anda harus login untuk menyimpan data.");
       }
@@ -489,7 +518,7 @@ const TransactionModal = ({
         type: formData.type,
         category: formData.category,
         financial_tag: formData.type === 'income' ? null : formData.financial_tag,
-        user_id: userId // <--- INJECT USER ID
+        user_id: userId
       };
 
       if (USE_MOCK_DATA) {
@@ -536,6 +565,9 @@ const TransactionModal = ({
   const inputClass = "w-full bg-[#151515] border border-white/10 rounded-xl p-3 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-all text-sm";
   const labelClass = "block text-[11px] text-gray-400 mb-1.5 uppercase font-bold tracking-wider";
 
+  // Tentukan list kategori berdasarkan tipe yang dipilih
+  const currentCategories = formData.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
       <div className="bg-[#1E1E1E] border border-white/10 rounded-3xl w-full max-w-md shadow-2xl relative flex flex-col max-h-[90vh]">
@@ -549,6 +581,8 @@ const TransactionModal = ({
 
         <div className="p-6 overflow-y-auto custom-scrollbar">
           <form onSubmit={handleSubmit} className="space-y-5">
+
+            {/* Type Selector */}
             <div className="p-1 bg-black/40 rounded-xl flex border border-white/5">
               {(['expense', 'income'] as const).map((t) => (
                 <button
@@ -591,24 +625,26 @@ const TransactionModal = ({
             <div className="grid grid-cols-1 gap-4">
               <div>
                 <label className={labelClass}>Kategori</label>
-                <select className={inputClass} value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}>
-                  <option value="Makanan">Makanan & Minuman</option>
-                  <option value="Transportasi">Transportasi</option>
-                  <option value="Rumah">Rumah & Sewa</option>
-                  <option value="Hiburan">Hiburan</option>
-                  <option value="Gaji">Gaji</option>
-                  <option value="Investasi">Investasi</option>
-                  <option value="Lainnya">Lainnya</option>
+                <select
+                  className={inputClass}
+                  value={formData.category}
+                  onChange={e => setFormData({ ...formData, category: e.target.value })}
+                >
+                  {/* Mapping Kategori Dinamis */}
+                  {currentCategories.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
                 </select>
               </div>
+
               {formData.type === 'expense' && (
                 <div>
                   <label className={labelClass}>Tag Keuangan</label>
                   <select required className={`${inputClass} border-l-4 border-l-blue-500`} value={formData.financial_tag} onChange={e => setFormData({ ...formData, financial_tag: e.target.value as FinancialTag })}>
-                    <option value="needs">Needs</option>
-                    <option value="wants">Wants</option>
-                    <option value="savings">Savings</option>
-                    <option value="liabilities">Liabilities</option>
+                    <option value="needs">Needs (Kebutuhan)</option>
+                    <option value="wants">Wants (Keinginan)</option>
+                    <option value="savings">Savings (Tabungan)</option>
+                    <option value="liabilities">Liabilities (Utang)</option>
                   </select>
                 </div>
               )}
