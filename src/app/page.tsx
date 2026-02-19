@@ -2,24 +2,29 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid
+  LineChart, Line, PieChart, Pie, Cell, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip as RechartsTooltip, Legend
 } from 'recharts';
 import {
   Plus, TrendingUp, TrendingDown, Wallet, CreditCard,
   Banknote, Target, ShieldAlert, LayoutDashboard,
   Settings, Trash2, Edit2, X, Database, ShieldCheck,
-  RotateCcw, CalendarDays, ArrowUpDown,
-  Landmark, Zap, List, Sparkles, Bot, RefreshCw
+  RotateCcw, CalendarDays, ArrowUpDown, Download,
+  Landmark, Zap, List, Sparkles, Bot, RefreshCw,
+  PiggyBank, Users, LineChart as LineChartIcon
 } from 'lucide-react';
 
 import { createClient } from '@supabase/supabase-js';
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseKey);
+import UserProfileModal from './components/UserProfileModal';
 
 // UBAH INI KE 'false' JIKA INGIN MENGGUNAKAN DATA SUPABASE ASLI
 const USE_MOCK_DATA = false;
+
+// Supabase Client
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 // ==========================================
 // 1. TYPE DEFINITIONS & SCHEMAS (Sync with SQL)
@@ -28,6 +33,17 @@ const USE_MOCK_DATA = false;
 type FinancialTag = 'needs' | 'wants' | 'savings' | 'liabilities';
 type TransactionType = 'income' | 'expense';
 type AssetClass = 'stock' | 'crypto' | 'gold' | 'cash' | 'bond';
+type TabId = 'dashboard' | 'cashflow' | 'investments' | 'goals_debts' | 'analytics';
+
+interface Wallet {
+  id: string;
+  user_id?: string;
+  name: string;
+  balance: number;
+  icon: string;
+  color: string;
+  is_active: boolean;
+}
 
 interface Transaction {
   id: string;
@@ -37,6 +53,11 @@ interface Transaction {
   type: TransactionType;
   category: string;
   financial_tag: FinancialTag;
+  wallet_id?: string;
+  split_from_id?: string;
+  is_split?: boolean;
+  split_total_amount?: number;
+  split_participants?: number;
   reference_id?: string;
   reference_type?: string;
 }
@@ -104,6 +125,31 @@ interface UserSettings {
   wants_pct: number;
   savings_pct: number;
   liabilities_pct: number;
+}
+
+// User Profile untuk Personalisasi AI Advisor
+interface UserProfile {
+  user_id?: string;
+  occupation?: 'student' | 'employee' | 'entrepreneur' | 'freelancer' | 'other';
+  occupation_label?: string; // Custom label (misal: "Mahasiswa Semester 5")
+  monthly_income?: number;
+  has_debt?: boolean;
+  financial_goals?: string; // String biasa agar user bisa ketik spasi
+  risk_profile?: 'not_started' | 'conservative' | 'moderate' | 'aggressive';
+  notes?: string; // Catatan tambahan untuk AI
+}
+
+interface WaterfallItem {
+  name: string;
+  value: number;
+  color: string;
+  percentage?: string;
+}
+
+interface WaterfallComparisonItem {
+  name: string;
+  actual: number;
+  ideal: number;
 }
 
 // ==========================================
@@ -186,12 +232,27 @@ const MOCK_TRADES: Trade[] = [
   { id: 't2', asset_id: 'a2', type: 'BUY', quantity: 0.02, price: 450000000, date: '2023-03-15', fee: 0 },
 ];
 
+const MOCK_WALLETS: Wallet[] = [
+  { id: 'w1', name: 'Tunai', balance: 2500000, icon: '💵', color: '#22c55e', is_active: true },
+  { id: 'w2', name: 'BCA', balance: 15000000, icon: '🏦', color: '#3b82f6', is_active: true },
+  { id: 'w3', name: 'GoPay', balance: 750000, icon: '📱', color: '#0ea5e9', is_active: true },
+  { id: 'w4', name: 'Tabungan', balance: 50000000, icon: '🐷', color: '#8b5cf6', is_active: true },
+];
+
 // ==========================================
 // 4. HELPER FUNCTIONS
 // ==========================================
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount);
 const formatCompact = (num: number) => new Intl.NumberFormat('id-ID', { notation: "compact", compactDisplay: "short" }).format(num);
+
+// Format harga saham dengan bilangan asli (contoh: 2.390, 218, 11.280)
+const formatStockPrice = (price: number) => {
+  return new Intl.NumberFormat('id-ID', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  }).format(price);
+};
 
 const calculatePortfolio = (assets: Asset[], trades: Trade[]): PortfolioPosition[] => {
   const positions: Record<string, PortfolioPosition> = {};
@@ -290,8 +351,8 @@ const InvestmentModule = ({
             <tr className="text-gray-500 border-b border-white/5">
               <th className="pb-3 pt-2 font-medium">Aset</th>
               <th className="pb-3 pt-2 font-medium text-right">Qty</th>
-              <th className="pb-3 pt-2 font-medium text-right">Avg</th>
-              <th className="pb-3 pt-2 font-medium text-right">Sekarang</th>
+              <th className="pb-3 pt-2 font-medium text-right">Avg Beli</th>
+              <th className="pb-3 pt-2 font-medium text-right">Avg Sekarang</th>
               <th className="pb-3 pt-2 font-medium text-right">PnL</th>
               <th className="pb-3 pt-2 font-medium text-center w-8"></th>
             </tr>
@@ -304,13 +365,13 @@ const InvestmentModule = ({
                   <div className="text-xs text-gray-500 uppercase">{p.asset.class}</div>
                 </td>
                 <td className="py-3 text-right text-gray-300 font-mono">{p.quantity}</td>
-                <td className="py-3 text-right text-gray-300 font-mono">{formatCompact(p.avgBuyPrice)}</td>
+                <td className="py-3 text-right text-gray-300 font-mono">{formatStockPrice(p.avgBuyPrice)}</td>
                 <td
                   className="py-3 text-right font-bold text-white font-mono cursor-pointer hover:text-blue-400 decoration-dotted underline underline-offset-4"
                   onClick={() => onUpdatePrice(p.asset.id, p.asset.current_price)}
                   title="Klik untuk update harga pasar manual"
                 >
-                  {formatCompact(p.currentValue)}
+                  {formatStockPrice(p.asset.current_price)}
                 </td>
                 <td className="py-3 text-right">
                   <div className={`font-mono font-bold ${p.unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
@@ -2110,11 +2171,13 @@ const AuthModal = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }
 const AIInsightWidget = ({
   insight,
   isLoading,
-  onGenerate
+  onGenerate,
+  onOpenProfile
 }: {
   insight: string;
   isLoading: boolean;
   onGenerate: () => void;
+  onOpenProfile: () => void;
 }) => {
   return (
     <div className="bg-gradient-to-r from-purple-900/40 to-blue-900/40 border border-purple-500/30 rounded-2xl p-6 shadow-lg mb-6 relative overflow-hidden">
@@ -2130,14 +2193,24 @@ const AIInsightWidget = ({
             AI Financial Advisor <Sparkles size={14} className="text-yellow-400 animate-pulse" />
           </h3>
         </div>
-        <button
-          onClick={onGenerate}
-          disabled={isLoading}
-          className="flex items-center gap-2 text-xs font-bold bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-all disabled:opacity-50"
-        >
-          {isLoading ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-          {isLoading ? 'Menganalisis...' : 'Refresh Analisis'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onOpenProfile}
+            className="flex items-center gap-1 text-xs font-bold bg-white/10 hover:bg-white/20 text-white px-2 py-1.5 rounded-lg transition-all"
+            title="Setel profil agar saran lebih personal"
+          >
+            <Settings size={12} />
+            <span className="hidden sm:inline">Profil</span>
+          </button>
+          <button
+            onClick={onGenerate}
+            disabled={isLoading}
+            className="flex items-center gap-2 text-xs font-bold bg-white/10 hover:bg-white/20 text-white px-3 py-1.5 rounded-lg transition-all disabled:opacity-50"
+          >
+            {isLoading ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            {isLoading ? 'Menganalisis...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       <div className="relative z-10">
@@ -2160,30 +2233,31 @@ const AIInsightWidget = ({
 // ==========================================
 
 export default function FinancialFreedomOS() {
-  const [user, setUser] = useState<any>(null); // State User
+  // ========== STATE MANAGEMENT ==========
+  const [user, setUser] = useState<any>(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false); // State Modal Auth
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
+  // Data States
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [debts, setDebts] = useState<Debt[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+
+  // UI States
   const [dateFilter, setDateFilter] = useState<'thisMonth' | 'all'>('thisMonth');
   const [tooltipPos, setTooltipPos] = useState<{ x: number, y: number } | undefined>(undefined);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSubModalOpen, setIsSubModalOpen] = useState(false);
-  const [selectedDebt, setSelectedDebt] = useState<Debt | null>(null); // State untuk modal pembayaran utang
+  const [selectedDebt, setSelectedDebt] = useState<Debt | null>(null);
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
   const [isWaterfallSettingsOpen, setIsWaterfallSettingsOpen] = useState(false);
-  const [idealAllocation, setIdealAllocation] = useState({
-    needs: 50,
-    wants: 30,
-    savings: 20,
-    liabilities: 0
-  });
-  const [isDatabaseModalOpen, setIsDatabaseModalOpen] = useState(false); // Modal Database
-  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null); // Data untuk Edit
-  const [goals, setGoals] = useState<Goal[]>([]);
+  const [isDatabaseModalOpen, setIsDatabaseModalOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [isAddSavingsModalOpen, setIsAddSavingsModalOpen] = useState(false);
   const [selectedGoal, setSelectedGoal] = useState<Goal | null>(null);
@@ -2191,6 +2265,31 @@ export default function FinancialFreedomOS() {
   const [hoverAngle, setHoverAngle] = useState(0);
   const [aiInsight, setAiInsight] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
+  const [isSplitBillModalOpen, setIsSplitBillModalOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  // Navigation States - Updated with new tab IDs
+  const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Settings
+  const [idealAllocation, setIdealAllocation] = useState({
+    needs: 50,
+    wants: 30,
+    savings: 20,
+    liabilities: 0
+  });
+
+  // Navigation Items Configuration - Updated
+  const NAVIGATION_ITEMS = [
+    { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'cashflow' as const, label: 'Arus Kas', icon: ArrowUpDown },
+    { id: 'investments' as const, label: 'Investasi', icon: TrendingUp },
+    { id: 'goals_debts' as const, label: 'Target & Kewajiban', icon: Target },
+    { id: 'analytics' as const, label: 'Analisis Data', icon: LineChartIcon },
+  ] as const;
+
   const handleUpdateAssetPrice = async (assetId: string, currentPrice: number) => {
     const newPrice = prompt("Masukkan harga pasar terbaru:", String(currentPrice));
     if (!newPrice) return;
@@ -2232,6 +2331,8 @@ export default function FinancialFreedomOS() {
 
   // 2. EFFECT: LOAD DATA (HYBRID LOGIC)
   useEffect(() => {
+    let assetsChannel: ReturnType<typeof supabase.channel> | null = null;
+
     const loadData = async () => {
       // KONDISI A: TIDAK ADA USER (GUEST) -> LOAD MOCK DATA
       if (!user) {
@@ -2242,14 +2343,13 @@ export default function FinancialFreedomOS() {
         setTrades(MOCK_TRADES);
         setSubscriptions(MOCK_SUBSCRIPTIONS || []);
         setGoals(MOCK_GOALS);
+        setWallets(MOCK_WALLETS);
       }
       // KONDISI B: ADA USER (LOGIN) -> LOAD REAL DATA BY USER_ID
       else {
         console.log("🔐 User Logged In:", user.email);
         try {
-          // Fetch semua tabel filter berdasarkan user_id (jika RLS aktif, ini otomatis, 
-          // tapi kita bisa eksplisit atau biarkan Supabase handle)
-
+          // Fetch semua tabel filter berdasarkan user_id
           const { data: tx } = await supabase.from('transactions').select('*').eq('user_id', user.id).order('date', { ascending: false });
           if (tx) setTransactions(tx as any);
 
@@ -2259,7 +2359,7 @@ export default function FinancialFreedomOS() {
           const { data: as } = await supabase.from('assets').select('*').eq('user_id', user.id);
           if (as) setAssets(as as any);
 
-          const { data: tr } = await supabase.from('trades').select('*').eq('user_id', user.id); // Trades biasanya join asset, tapi ini simplified
+          const { data: tr } = await supabase.from('trades').select('*').eq('user_id', user.id);
           if (tr) setTrades(tr as any);
 
           const { data: sb } = await supabase.from('subscriptions').select('*').eq('user_id', user.id).eq('is_active', true);
@@ -2268,7 +2368,11 @@ export default function FinancialFreedomOS() {
           const { data: gl } = await supabase.from('goals').select('*').eq('user_id', user.id).order('created_at', { ascending: true });
           if (gl) setGoals(gl as any);
 
-          // [BARU] LOAD USER SETTINGS
+          // Load Wallets
+          const { data: wl } = await supabase.from('wallets').select('*').eq('user_id', user.id).eq('is_active', true);
+          if (wl) setWallets(wl as any);
+
+          // Load User Settings
           const { data: settings } = await supabase
             .from('user_settings')
             .select('*')
@@ -2284,6 +2388,32 @@ export default function FinancialFreedomOS() {
             });
           }
 
+          // [BARU] SETUP REALTIME SUBSCRIPTION UNTUK ASSETS
+          // Subscribe ke perubahan tabel assets untuk user ini
+          assetsChannel = supabase
+            .channel(`assets:${user.id}`)
+            .on(
+              'postgres_changes',
+              {
+                event: '*', // Listen untuk INSERT, UPDATE, DELETE
+                schema: 'public',
+                table: 'assets',
+                filter: `user_id=eq.${user.id}`
+              },
+              (payload) => {
+                console.log('🔄 Realtime asset update:', payload);
+                
+                if (payload.eventType === 'INSERT') {
+                  setAssets(prev => [...prev, payload.new as Asset]);
+                } else if (payload.eventType === 'UPDATE') {
+                  setAssets(prev => prev.map(a => a.id === payload.new.id ? { ...a, ...payload.new } : a));
+                } else if (payload.eventType === 'DELETE') {
+                  setAssets(prev => prev.filter(a => a.id !== payload.old.id));
+                }
+              }
+            )
+            .subscribe();
+
         } catch (err) {
           console.error("Gagal load data user:", err);
         }
@@ -2292,7 +2422,15 @@ export default function FinancialFreedomOS() {
 
     if (!isAuthChecking) {
       loadData();
+      loadUserProfile(); // Load user profile untuk personalisasi AI
     }
+
+    // Cleanup subscription saat component unmount atau user berubah
+    return () => {
+      if (assetsChannel) {
+        supabase.removeChannel(assetsChannel);
+      }
+    };
   }, [user, isAuthChecking]); // Re-run saat status 'user' berubah
 
   // ==========================================
@@ -2320,7 +2458,59 @@ export default function FinancialFreedomOS() {
     }
   };
 
-  // --- AI HANDLER (UPDATED: LEBIH NATURAL & ASIK) ---
+  // [BARU] HANDLER SAVE USER PROFILE
+  const handleSaveUserProfile = async (profile: UserProfile) => {
+    // 1. Update state lokal
+    setUserProfile(profile);
+
+    // 2. Simpan ke Database (Jika Login)
+    if (user && !USE_MOCK_DATA) {
+      const { error } = await supabase
+        .from('user_profiles')
+        .upsert({
+          user_id: user.id,
+          occupation: profile.occupation,
+          occupation_label: profile.occupation_label,
+          monthly_income: profile.monthly_income,
+          has_debt: profile.has_debt,
+          financial_goals: profile.financial_goals,
+          risk_profile: profile.risk_profile,
+          notes: profile.notes,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id' });
+
+      if (error) {
+        alert("Gagal menyimpan profil: " + error.message);
+      } else {
+        alert("✅ Profil berhasil disimpan! AI Advisor sekarang lebih personal.");
+      }
+    } else {
+      // Mock mode
+      alert("✅ Profil berhasil disimpan (Mock Mode)");
+    }
+  };
+
+  // [BARU] HANDLER LOAD USER PROFILE
+  const loadUserProfile = async () => {
+    if (!user || USE_MOCK_DATA) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (error) throw error;
+      if (data) {
+        setUserProfile(data);
+      }
+    } catch (error: any) {
+      console.error("Error loading profile:", error);
+    }
+  };
+
+  // --- AI HANDLER (PERSONALIZED DENGAN USER PROFILE) ---
   const generateAIInsight = async () => {
     setIsAiLoading(true);
 
@@ -2331,40 +2521,78 @@ export default function FinancialFreedomOS() {
       return;
     }
 
-    // Siapkan Data (Sama seperti sebelumnya)
+    // Siapkan Data
     const safeGoals = goals.map(g => {
       const pct = g.target_amount > 0 ? (g.current_amount / g.target_amount * 100) : 0;
       return `${g.name} (${pct.toFixed(0)}%)`;
     });
 
+    // User Profile Context
+    const userProfileContext = userProfile ? {
+      occupation: userProfile.occupation_label || userProfile.occupation || 'Tidak diketahui',
+      monthly_income: userProfile.monthly_income ? formatCurrency(userProfile.monthly_income) : 'Tidak ada penghasilan tetap',
+      has_debt: userProfile.has_debt ? 'Ya' : 'Tidak',
+      financial_goals: userProfile.financial_goals || 'Belum diset',
+      risk_profile: userProfile.risk_profile || 'Tidak diketahui',
+      notes: userProfile.notes || '-'
+    } : {
+      occupation: 'Tidak diketahui',
+      monthly_income: 'Tidak ada data',
+      has_debt: 'Tidak diketahui',
+      financial_goals: 'Belum diset',
+      risk_profile: 'Tidak diketahui',
+      notes: '-'
+    };
+
     const contextData = {
+      profile: userProfileContext,
       netWorth: formatCompact(netWorth),
       cashFlow: formatCompact(cashFlow),
       assets: formatCompact(totalAssetsValue),
       debt: formatCompact(debts.reduce((acc, d) => acc + (d.total_amount - d.paid_amount), 0)),
       expenses: filteredTransactions
         .filter(t => t.type === 'expense')
-        .slice(0, 3) // Ambil 3 aja biar hemat token
+        .slice(0, 3)
         .map(t => `${t.title} (${formatCompact(t.amount)})`),
       budget: waterfallData.map(w => `${w.name}: ${formatCompact(w.value)}`),
       goals: safeGoals
     };
 
-    // --- PROMPT BARU: PERSONA "FINANCIAL BESTIE" ---
+    // --- PROMPT PERSONALIZED ---
     const prompt = `
-      Bertindaklah sebagai penasihat keuangan pribadi yang profesional namun ramah.
-      Analisis ringkasan data keuangan ini: 
-      ${JSON.stringify(contextData)}
+      KONTEKS USER:
+      ${JSON.stringify(userProfileContext, null, 2)}
 
+      DATA KEUANGAN:
+      ${JSON.stringify(contextData, null, 2)}
+
+      ---
+
+      Bertindaklah sebagai penasihat keuangan pribadi yang profesional namun ramah dan mudah dipahami.
+
+      TUGAS:
       Berikan 1 paragraf singkat (maksimal 3-4 kalimat) yang berisi:
-      1. Evaluasi cepat kondisi keuangan saat ini (Cashflow/Net Worth).
-      2. Peringatan jika ada pengeluaran boros atau utang yang mengkhawatirkan.
-      3. Satu saran aksi konkret untuk perbaikan atau investasi.
+      1. Evaluasi cepat kondisi keuangan SESUAI PROFIL USER (misal: mahasiswa → fokus ke pengelolaan uang jajan, karyawan → fokus ke investasi)
+      2. Peringatan JIKA ADA pengeluaran boros atau utang yang mengkhawatirkan
+      3. Satu saran aksi konkret yang RELEVAN dengan profil dan kondisi user
 
-      Gunakan bahasa Indonesia yang baku namun mengalir (tidak kaku).
-      Gunakan emoji agar menarik.
-      Jangan basa-basi atau memuji berlebihan. Langsung ke inti masalah dan solusi.
-      Jangan gunakan markdown
+      PANDUAN PERSONALISASI:
+      - Jika user adalah MAHASISWA: Fokus ke pengelolaan uang jajan, hindari saran investasi besar, sarankan menabung kecil-kecilan
+      - Jika user adalah KARYAWAN: Bisa sarankan investasi rutin, dana darurat, atau pembayaran utang
+      - Jika user adalah ENTREPRENEUR: Fokus ke cashflow bisnis, pemisahan keuangan pribadi dan bisnis
+      - Jika PENGHASILAN KECIL (< 3jt): Sarankan prioritas kebutuhan dasar, hindari saran investasi besar
+      - Jika PENGHASILAN MENENGAH (3-10jt): Bisa sarankan alokasi 10-20% untuk tabungan/investasi
+      - Jika PENGHASILAN BESAR (> 10jt): Bisa sarankan diversifikasi investasi, tax planning
+
+      GAYA BAHASA:
+      - Gunakan bahasa Indonesia yang santai namun tetap sopan
+      - Gunakan emoji secukupnya agar menarik
+      - Jangan menggurui atau menghakimi
+      - Langsung ke inti masalah dan solusi
+      - JANGAN gunakan markdown
+
+      CONTOH OUTPUT YANG BAIK:
+      "💰 Sebagai mahasiswa, cashflow Rp365rb kamu sudah cukup baik! Tapi wants 65% masih terlalu tinggi. Coba alokasikan Rp50rb/hari untuk tabungan kecil-kecilan. Dalam 1 tahun bisa jadi Rp1,8jt untuk modal investasi awalmu! 🎯"
     `;
 
     try {
@@ -2377,7 +2605,7 @@ export default function FinancialFreedomOS() {
         body: JSON.stringify({
           model: 'moonshotai/kimi-k2-instruct-0905',
           messages: [{ role: 'user', content: prompt }],
-          temperature: 0.8, // Sedikit dinaikkan agar lebih kreatif/variatif
+          temperature: 0.8,
           max_tokens: 500
         })
       });
@@ -2489,18 +2717,116 @@ export default function FinancialFreedomOS() {
         setAssets(prev => prev.filter(a => a.id !== id));
         setTrades(prev => prev.filter(t => t.asset_id !== id)); // Hapus trades terkait
       } else {
-        // Hapus Asset (Pastikan di DB sudah cascade delete, atau hapus trades dulu)
-        // Kita asumsikan cascade atau hapus trade manual dulu
-        await supabase.from('trades').delete().eq('asset_id', id); // Hapus history trade dulu biar aman
+        await supabase.from('trades').delete().eq('asset_id', id);
         const { error } = await supabase.from('assets').delete().eq('id', id);
         if (error) throw error;
-
         setAssets(prev => prev.filter(a => a.id !== id));
         setTrades(prev => prev.filter(t => t.asset_id !== id));
       }
     } catch (err: any) {
       alert("Gagal hapus: " + err.message);
     }
+  };
+
+  // ==========================================
+  // NEW FEATURE HANDLERS
+  // ==========================================
+
+  // 5. Export to CSV
+  const exportToCSV = () => {
+    const headers = ['Date', 'Title', 'Type', 'Amount', 'Category', 'Wallet', 'Financial Tag'];
+    const csvData = transactions.map(t => [
+      t.date,
+      `"${t.title.replace(/"/g, '""')}"`,
+      t.type,
+      t.amount,
+      t.category,
+      wallets.find(w => w.id === t.wallet_id)?.name || 'N/A',
+      t.financial_tag || 'N/A'
+    ]);
+
+    const csv = [headers, ...csvData]
+      .map(row => row.join(','))
+      .join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `transactions-${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // 6. Split Bill Handler
+  const handleSplitBill = (transaction: Partial<Transaction>, participants: number, participantNames: string[]) => {
+    if (!transaction.amount || !transaction.title) return alert("Data transaksi tidak valid");
+    if (participants < 2) return alert("Minimal 2 peserta untuk split bill");
+
+    const splitAmount = Math.round(transaction.amount / participants);
+    const newDebts: Debt[] = [];
+
+    // Create receivable debts for each participant
+    for (let i = 0; i < participants; i++) {
+      newDebts.push({
+        id: `split-${Date.now()}-${i}`,
+        name: `${transaction.title} - ${participantNames[i] || `Peserta ${i + 1}`}`,
+        total_amount: splitAmount,
+        paid_amount: 0,
+        type: 'receivable',
+        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        notes: `Split bill dari ${transaction.title}`
+      });
+    }
+
+    // Add debts
+    setDebts(prev => [...prev, ...newDebts]);
+
+    // Update transaction with split info
+    const splitTransaction: Transaction = {
+      ...transaction as Transaction,
+      is_split: true,
+      split_total_amount: transaction.amount,
+      split_participants: participants
+    };
+
+    // If creating new transaction, add it
+    if (!transaction.id) {
+      setTransactions(prev => [splitTransaction, ...prev]);
+    }
+
+    alert(`✅ Split bill berhasil! ${participants} piutang dibuat sebesar ${formatCurrency(splitAmount)} per orang.`);
+  };
+
+  // 7. Wallet Handlers
+  const handleCreateWallet = (wallet: Omit<Wallet, 'id'>) => {
+    const newWallet: Wallet = {
+      ...wallet,
+      id: Math.random().toString(36).substr(2, 9)
+    };
+    setWallets(prev => [...prev, newWallet]);
+  };
+
+  const handleDeleteWallet = async (id: string) => {
+    if (!window.confirm("Hapus dompet ini? Saldo akan menjadi 0.")) return;
+    try {
+      if (USE_MOCK_DATA) {
+        setWallets(prev => prev.filter(w => w.id !== id));
+      } else {
+        const { error } = await supabase.from('wallets').delete().eq('id', id);
+        if (error) throw error;
+        setWallets(prev => prev.filter(w => w.id !== id));
+      }
+    } catch (err: any) {
+      alert("Gagal hapus wallet: " + err.message);
+    }
+  };
+
+  const handleUpdateWalletBalance = (walletId: string, amount: number) => {
+    setWallets(prev => prev.map(w => 
+      w.id === walletId ? { ...w, balance: w.balance + amount } : w
+    ));
   };
 
   // --- HANDLER DATABASE ACTIONS ---
@@ -2667,20 +2993,92 @@ export default function FinancialFreedomOS() {
   // ==========================================
 
   // 1. Update Waterfall Data
-  const waterfallData = useMemo(() => {
+  const waterfallData: WaterfallItem[] = useMemo(() => {
     // Ubah 'transactions' menjadi 'filteredTransactions'
     const grouped = filteredTransactions.reduce((acc, curr) => {
       if (curr.financial_tag) acc[curr.financial_tag] = (acc[curr.financial_tag] || 0) + curr.amount;
       return acc;
     }, {} as Record<string, number>);
 
+    const total = filteredTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
+
     return [
-      { name: 'Needs (Kebutuhan)', value: grouped['needs'] || 0, color: COLORS.needs },
-      { name: 'Liabilities (Kewajiban)', value: grouped['liabilities'] || 0, color: COLORS.liabilities },
-      { name: 'Wants (Keinginan)', value: grouped['wants'] || 0, color: COLORS.wants },
-      { name: 'Savings (Tabungan)', value: grouped['savings'] || 0, color: COLORS.savings },
+      { name: 'Needs (Kebutuhan)', value: grouped['needs'] || 0, color: COLORS.needs, percentage: total > 0 ? `${((grouped['needs'] || 0) / total * 100).toFixed(0)}%` : '0%' },
+      { name: 'Liabilities (Kewajiban)', value: grouped['liabilities'] || 0, color: COLORS.liabilities, percentage: total > 0 ? `${((grouped['liabilities'] || 0) / total * 100).toFixed(0)}%` : '0%' },
+      { name: 'Wants (Keinginan)', value: grouped['wants'] || 0, color: COLORS.wants, percentage: total > 0 ? `${((grouped['wants'] || 0) / total * 100).toFixed(0)}%` : '0%' },
+      { name: 'Savings (Tabungan)', value: grouped['savings'] || 0, color: COLORS.savings, percentage: total > 0 ? `${((grouped['savings'] || 0) / total * 100).toFixed(0)}%` : '0%' },
     ].filter(i => i.value > 0);
   }, [filteredTransactions]); // Dependency berubah jadi filteredTransactions
+
+  // Data untuk Bar Chart Comparison (Actual vs Ideal)
+  const waterfallComparisonData: WaterfallComparisonItem[] = useMemo(() => {
+    const total = waterfallData.reduce((acc, i) => acc + i.value, 0) || 1;
+    return [
+      { 
+        name: 'Needs', 
+        actual: Math.round(((waterfallData.find(d => d.name.includes('Needs'))?.value || 0) / total) * 100),
+        ideal: idealAllocation.needs 
+      },
+      { 
+        name: 'Wants', 
+        actual: Math.round(((waterfallData.find(d => d.name.includes('Wants'))?.value || 0) / total) * 100),
+        ideal: idealAllocation.wants 
+      },
+      { 
+        name: 'Savings', 
+        actual: Math.round(((waterfallData.find(d => d.name.includes('Savings'))?.value || 0) / total) * 100),
+        ideal: idealAllocation.savings 
+      },
+      { 
+        name: 'Liabilities', 
+        actual: Math.round(((waterfallData.find(d => d.name.includes('Liabilities'))?.value || 0) / total) * 100),
+        ideal: idealAllocation.liabilities 
+      },
+    ];
+  }, [waterfallData, idealAllocation]);
+
+  // Analytics Data - Net Worth Trend Over Time
+  const analyticsData = useMemo(() => {
+    // Group transactions by date
+    const groupedByDate = transactions.reduce((acc, t) => {
+      const dateKey = t.date;
+      if (!acc[dateKey]) {
+        acc[dateKey] = {
+          date: new Date(t.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }),
+          dateRaw: t.date,
+          income: 0,
+          expense: 0,
+          netWorth: 0
+        };
+      }
+      if (t.type === 'income') {
+        acc[dateKey].income += t.amount;
+      } else {
+        acc[dateKey].expense += t.amount;
+      }
+      return acc;
+    }, {} as Record<string, { date: string; dateRaw: string; income: number; expense: number; netWorth: number }>);
+
+    // Calculate cumulative net worth and convert to array
+    let cumulativeNetWorth = 0;
+    const trendData = Object.values(groupedByDate)
+      .sort((a, b) => new Date(a.dateRaw).getTime() - new Date(b.dateRaw).getTime())
+      .map(item => {
+        cumulativeNetWorth += item.income - item.expense;
+        return {
+          ...item,
+          netWorth: cumulativeNetWorth
+        };
+      });
+
+    return trendData;
+  }, [transactions]);
+
+  // Total Wallets Balance
+  const totalWalletBalance = useMemo(() => {
+    return wallets.reduce((acc, w) => acc + w.balance, 0);
+  }, [wallets]);
+
   // Data untuk Pie Chart "Ideal"
   const idealWaterfallData = [
     { name: 'Needs', value: idealAllocation.needs, color: COLORS.needs },
@@ -2707,7 +3105,9 @@ export default function FinancialFreedomOS() {
     setTooltipPos({ x, y });
   };
 
-  // [BARU] RENDER LOADING SCREEN
+  // ==========================================
+  // LOADING SCREEN
+  // ==========================================
   if (isAuthChecking) {
     return (
       <div className="min-h-screen bg-[#191919] flex items-center justify-center">
@@ -2719,75 +3119,773 @@ export default function FinancialFreedomOS() {
     );
   }
 
-  return (
-    <div className="min-h-screen bg-[#191919] text-white font-sans selection:bg-blue-500/30 pb-20 md:pb-0">
+  // ==========================================
+  // RENDER CONTENT BASED ON ACTIVE TAB
+  // ==========================================
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'dashboard':
+        return (
+          <div className="space-y-6">
+            {/* AI INSIGHT WIDGET */}
+            <AIInsightWidget
+              insight={aiInsight}
+              isLoading={isAiLoading}
+              onGenerate={generateAIInsight}
+              onOpenProfile={() => setIsProfileModalOpen(true)}
+            />
 
-      {/* Indikator Mode Mock (Agar user sadar) */}
+            {/* STAT CARDS */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+              <StatCard title="Kekayaan Bersih" value={formatCompact(netWorth)} type="neutral" icon={Wallet} subtext="Aset - Kewajiban" />
+              <StatCard title="Portofolio" value={formatCompact(totalAssetsValue)} type="pos" icon={TrendingUp} subtext={`${portfolio.length} Aktif`} />
+              <StatCard title="Pengeluaran" value={formatCompact(totalExpense)} type="neg" icon={TrendingDown} subtext="Bulan Ini" />
+              <StatCard
+                title="Arus Kas"
+                value={formatCompact(cashFlow)}
+                type={cashFlow >= 0 ? 'pos' : 'neg'}
+                icon={ArrowUpDown}
+                subtext={cashFlow >= 0 ? 'Surplus (Pemasukan > Pengeluaran)' : 'Defisit (Pengeluaran > Pemasukan)'}
+              />
+            </div>
+
+            {/* WATERFALL & DEBTS */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="lg:col-span-2 bg-[#232323] border border-white/5 rounded-2xl p-4 md:p-6 shadow-lg h-auto">
+                <SectionHeader
+                  title="Metode Waterfall Pengeluaran"
+                  icon={Target}
+                  action={
+                    <button
+                      onClick={() => setIsWaterfallSettingsOpen(true)}
+                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-gray-500 hover:text-white"
+                      title="Atur Persentase Ideal"
+                    >
+                      <Settings size={18} />
+                    </button>
+                  }
+                />
+                {/* Waterfall Chart Content */}
+                <div className="flex flex-col md:flex-row gap-6 pb-2">
+                  <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-2">
+                    {/* Pie Chart - Waterfall Distribution */}
+                    <div className="relative h-[200px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={waterfallData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={80}
+                            paddingAngle={2}
+                            dataKey="value"
+                            onMouseEnter={onPieEnter}
+                            onMouseLeave={() => setTooltipPos(undefined)}
+                          >
+                            {waterfallData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={[COLORS.needs, COLORS.wants, COLORS.savings, COLORS.liabilities][index % 4]} />
+                            ))}
+                          </Pie>
+                          <RechartsTooltip
+                            content={({ active, payload }) => {
+                              if (active && payload && payload.length) {
+                                const data = payload[0].payload;
+                                return (
+                                  <div className="bg-[#1a1a1a] border border-white/10 p-2 rounded-lg shadow-xl">
+                                    <p className="text-xs font-bold text-white">{data.name}</p>
+                                    <p className="text-sm font-mono text-blue-400">{formatCurrency(data.value)}</p>
+                                    <p className="text-xs text-gray-500">{data.percentage}</p>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div className="text-center">
+                          <p className="text-xs text-gray-500 font-bold">Total</p>
+                          <p className="text-sm font-mono font-bold text-white">{formatCompact(totalExpense)}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bar Chart - Actual vs Ideal */}
+                    <div className="h-[200px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={waterfallComparisonData}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                          <XAxis dataKey="name" tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                          <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} tickFormatter={(v) => `${v}%`} />
+                          <RechartsTooltip
+                            content={({ active, payload }) => {
+                              if (active && payload && payload.length) {
+                                return (
+                                  <div className="bg-[#1a1a1a] border border-white/10 p-2 rounded-lg shadow-xl">
+                                    <p className="text-xs font-bold text-white">{payload[0]?.payload.name}</p>
+                                    <p className="text-xs text-blue-400">Aktual: {payload[0]?.value}%</p>
+                                    <p className="text-xs text-green-400">Ideal: {payload[1]?.value}%</p>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }}
+                          />
+                          <Bar dataKey="actual" fill="#3b82f6" name="Aktual" />
+                          <Bar dataKey="ideal" fill="#22c55e" name="Ideal" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+
+                  {/* Legend */}
+                  <div className="w-full md:w-48 space-y-2">
+                    {waterfallData.map((item, index) => (
+                      <div key={item.name} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: [COLORS.needs, COLORS.wants, COLORS.savings, COLORS.liabilities][index % 4] }}></div>
+                          <span className="text-gray-400">{item.name}</span>
+                        </div>
+                        <span className="font-mono text-white font-bold">{item.percentage}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Debts Widget */}
+              <div className="bg-[#232323] border border-white/5 rounded-2xl p-4 md:p-6 shadow-lg">
+                <SectionHeader
+                  title="Utang & Piutang"
+                  icon={CreditCard}
+                  action={
+                    <button
+                      onClick={() => setIsDebtModalOpen(true)}
+                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-gray-500 hover:text-white"
+                      title="Tambah Utang"
+                    >
+                      <Plus size={18} />
+                    </button>
+                  }
+                />
+                <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar">
+                  {debts.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center py-6">
+                      <div className="bg-blue-500/10 p-3 rounded-full mb-2">
+                        <CreditCard size={24} className="text-blue-500" />
+                      </div>
+                      <p className="text-gray-500 text-xs">Belum ada utang.</p>
+                    </div>
+                  ) : (
+                    debts.map((debt) => {
+                      const progress = (debt.paid_amount / debt.total_amount) * 100;
+                      const remaining = debt.total_amount - debt.paid_amount;
+                      return (
+                        <div key={debt.id} className="p-3 bg-black/20 rounded-xl border border-white/5 hover:border-white/10 transition-all">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className="text-sm font-bold text-white">{debt.name}</p>
+                              <p className="text-[10px] text-gray-500 uppercase">{debt.type === 'payable' ? 'Harus Dibayar' : 'Piutang'}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs font-mono font-bold text-white">{formatCompact(remaining)}</p>
+                              <p className="text-[9px] text-gray-500">Sisa</p>
+                            </div>
+                          </div>
+                          <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${debt.type === 'payable' ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${progress}%` }}></div>
+                          </div>
+                          <div className="flex justify-between items-center mt-2">
+                            <button
+                              onClick={() => openDebtModal(debt)}
+                              className="text-[10px] bg-white/5 hover:bg-white/10 text-white px-2 py-1 rounded transition-all"
+                            >
+                              Bayar
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDebt(debt.id)}
+                              className="p-1 text-gray-600 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* BOTTOM ROW: RECENT ACTIVITY & GOALS */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Recent Activity */}
+              <div className="lg:col-span-1 bg-[#232323] border border-white/5 rounded-2xl p-4 md:p-6 shadow-lg">
+                <SectionHeader
+                  title="Aktivitas Terakhir"
+                  icon={RotateCcw}
+                  action={
+                    <button
+                      onClick={() => setIsDatabaseModalOpen(true)}
+                      className="text-xs bg-white/5 hover:bg-white/10 text-white px-2 py-1 rounded-lg transition-all flex items-center gap-1"
+                    >
+                      <Database size={12} /> <span className="hidden sm:inline">Lihat Semua</span>
+                    </button>
+                  }
+                />
+                <div className="space-y-2 max-h-[300px] overflow-y-auto custom-scrollbar">
+                  {filteredTransactions.slice(0, 5).map((t) => (
+                    <div key={t.id} className="flex justify-between items-center p-2 hover:bg-white/5 rounded-lg transition-all group">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${t.type === 'income' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                          {t.type === 'income' ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium text-white">{t.title}</p>
+                          <p className="text-[10px] text-gray-500">{new Date(t.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}</p>
+                        </div>
+                      </div>
+                      <div className={`text-xs font-mono font-bold ${t.type === 'income' ? 'text-green-400' : 'text-red-400'}`}>
+                        {t.type === 'income' ? '+' : '-'}{formatCompact(t.amount)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Financial Goals Widget */}
+              <div className="lg:col-span-2">
+                <FinancialGoalsWidget
+                  goals={goals}
+                  onOpenAddSavings={openAddSavingsModal}
+                  onOpenCreateGoal={() => setIsGoalModalOpen(true)}
+                  onDelete={handleDeleteGoal}
+                />
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'cashflow':
+        return (
+          <div className="space-y-6">
+            {/* Wallet Cards */}
+            <div>
+              <SectionHeader
+                title="Dompet & Akun"
+                icon={Wallet}
+                action={
+                  <button onClick={() => setIsWalletModalOpen(true)} className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-gray-500 hover:text-white">
+                    <Plus size={18} />
+                  </button>
+                }
+              />
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {wallets.map(wallet => (
+                  <div key={wallet.id} className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-xl p-4 border border-white/5">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl">{wallet.icon}</span>
+                        <div>
+                          <h3 className="text-white font-bold">{wallet.name}</h3>
+                          <p className="text-xs text-gray-500">Dompet Digital</p>
+                        </div>
+                      </div>
+                      <button onClick={() => handleDeleteWallet(wallet.id)} className="text-gray-500 hover:text-red-500">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                    <div className="text-2xl font-bold font-mono text-white">
+                      {formatCurrency(wallet.balance)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Transactions Header */}
+            <div className="bg-[#232323] border border-white/5 rounded-2xl p-4 md:p-6 shadow-lg">
+              <SectionHeader
+                title="Riwayat Transaksi"
+                icon={ArrowUpDown}
+                action={
+                  <button
+                    onClick={() => setIsModalOpen(true)}
+                    className="text-xs bg-white/5 hover:bg-white/10 text-white px-3 py-1.5 rounded-lg transition-all flex items-center gap-1"
+                  >
+                    <Plus size={14} /> Tambah
+                  </button>
+                }
+              />
+              <div className="space-y-2 max-h-[500px] overflow-y-auto custom-scrollbar">
+                {filteredTransactions.map((t) => (
+                  <div key={t.id} className="flex justify-between items-center p-3 hover:bg-white/5 rounded-lg transition-all">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 rounded-lg ${t.type === 'income' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
+                        {t.type === 'income' ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-white">{t.title}</p>
+                        <p className="text-xs text-gray-500">{t.category} • {new Date(t.date).toLocaleDateString('id-ID')}</p>
+                      </div>
+                    </div>
+                    <div className={`text-sm font-mono font-bold ${t.type === 'income' ? 'text-green-400' : 'text-red-400'}`}>
+                      {t.type === 'income' ? '+' : '-'}{formatCurrency(t.amount)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'investments':
+        return (
+          <div className="space-y-6">
+            <InvestmentModule
+              positions={portfolio}
+              onAddTrade={() => setIsTradeModalOpen(true)}
+              onDeleteAsset={handleDeleteAsset}
+              onUpdatePrice={handleUpdateAssetPrice}
+            />
+          </div>
+        );
+
+      case 'goals_debts':
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Financial Goals */}
+            <FinancialGoalsWidget
+              goals={goals}
+              onOpenAddSavings={openAddSavingsModal}
+              onOpenCreateGoal={() => setIsGoalModalOpen(true)}
+              onDelete={handleDeleteGoal}
+            />
+
+            {/* Subscriptions & Debts */}
+            <div className="space-y-6">
+              <SubscriptionModule
+                subscriptions={subscriptions}
+                onAddClick={() => setIsSubModalOpen(true)}
+                onDelete={handleDeleteSubscription}
+              />
+
+              {/* Debts with Split Bill */}
+              <div className="bg-[#232323] border border-white/5 rounded-2xl p-4 md:p-6 shadow-lg">
+                <SectionHeader
+                  title="Utang & Piutang"
+                  icon={CreditCard}
+                  action={
+                    <button
+                      onClick={() => setIsDebtModalOpen(true)}
+                      className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-gray-500 hover:text-white"
+                    >
+                      <Plus size={18} />
+                    </button>
+                  }
+                />
+                <div className="space-y-3 max-h-[300px] overflow-y-auto custom-scrollbar">
+                  {debts.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center py-6">
+                      <div className="bg-blue-500/10 p-3 rounded-full mb-2">
+                        <CreditCard size={24} className="text-blue-500" />
+                      </div>
+                      <p className="text-gray-500 text-xs">Belum ada utang.</p>
+                    </div>
+                  ) : (
+                    debts.map((debt) => {
+                      const progress = (debt.paid_amount / debt.total_amount) * 100;
+                      const remaining = debt.total_amount - debt.paid_amount;
+                      return (
+                        <div key={debt.id} className="p-3 bg-black/20 rounded-xl border border-white/5 hover:border-white/10 transition-all">
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className="text-sm font-bold text-white">{debt.name}</p>
+                              <p className="text-[10px] text-gray-500 uppercase">{debt.type === 'payable' ? 'Harus Dibayar' : 'Piutang'}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xs font-mono font-bold text-white">{formatCompact(remaining)}</p>
+                              <p className="text-[9px] text-gray-500">Sisa</p>
+                            </div>
+                          </div>
+                          <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${debt.type === 'payable' ? 'bg-red-500' : 'bg-green-500'}`} style={{ width: `${progress}%` }}></div>
+                          </div>
+                          <div className="flex justify-between items-center mt-2">
+                            <button
+                              onClick={() => openDebtModal(debt)}
+                              className="text-[10px] bg-white/5 hover:bg-white/10 text-white px-2 py-1 rounded transition-all"
+                            >
+                              Bayar
+                            </button>
+                            <button
+                              onClick={() => handleDeleteDebt(debt.id)}
+                              className="p-1 text-gray-600 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+
+      case 'analytics':
+        return (
+          <div className="space-y-6">
+            {/* Trend Chart */}
+            <div className="bg-[#232323] border border-white/5 rounded-2xl p-4 md:p-6 shadow-lg">
+              <SectionHeader
+                title="Trend Kekayaan Bersih"
+                icon={LineChartIcon}
+                action={
+                  <button
+                    onClick={exportToCSV}
+                    className="flex items-center gap-2 text-xs bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg transition-all"
+                  >
+                    <Download size={14} /> Export CSV
+                  </button>
+                }
+              />
+              <div className="h-[300px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={analyticsData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                    <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 12 }} />
+                    <YAxis tick={{ fill: '#9ca3af', fontSize: 12 }} tickFormatter={(v) => formatCompact(v)} />
+                    <RechartsTooltip
+                      content={({ active, payload }) => {
+                        if (active && payload?.length) {
+                          return (
+                            <div className="bg-[#1a1a1a] border border-white/10 p-3 rounded-lg">
+                              <p className="text-xs text-gray-400 mb-1">{payload[0]?.payload.date}</p>
+                              <p className="text-sm font-bold text-white">
+                                {formatCurrency(payload[0]?.value as number)}
+                              </p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="netWorth"
+                      stroke="#3b82f6"
+                      strokeWidth={2}
+                      dot={false}
+                      name="Kekayaan Bersih"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Income vs Expense Bar Chart */}
+            <div className="bg-[#232323] border border-white/5 rounded-2xl p-4 md:p-6 shadow-lg">
+              <SectionHeader title="Pemasukan vs Pengeluaran" icon={BarChart} />
+              <div className="h-[250px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={analyticsData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                    <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 12 }} />
+                    <YAxis tick={{ fill: '#9ca3af', fontSize: 12 }} tickFormatter={(v) => formatCompact(v)} />
+                    <RechartsTooltip
+                      content={({ active, payload }) => {
+                        if (active && payload?.length) {
+                          return (
+                            <div className="bg-[#1a1a1a] border border-white/10 p-2 rounded-lg">
+                              <p className="text-xs text-gray-400 mb-1">{payload[0]?.payload.date}</p>
+                              {payload.map((p: any, i: number) => (
+                                <p key={i} className="text-xs font-bold" style={{ color: p.color }}>
+                                  {p.name}: {formatCurrency(p.value)}
+                                </p>
+                              ))}
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Legend />
+                    <Bar dataKey="income" fill="#22c55e" name="Pemasukan" />
+                    <Bar dataKey="expense" fill="#ef4444" name="Pengeluaran" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-[#191919] overflow-hidden">
+      {/* Mobile Menu Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/80 z-40 md:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* DESKTOP SIDEBAR - Hidden on mobile */}
+      <aside className="hidden md:flex flex-col w-64 bg-[#1e1e1e] border-r border-white/5 overflow-hidden">
+        {/* Logo/Brand */}
+        <div className="p-6 border-b border-white/5">
+          <h1 className="text-lg font-bold text-white flex items-center gap-2">
+            <Wallet className="text-blue-500" size={20} />
+            FinanceOS
+          </h1>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 p-4 space-y-1">
+          {NAVIGATION_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveTab(item.id)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                  isActive
+                    ? 'bg-blue-600/20 text-blue-500 border-r-2 border-blue-500'
+                    : 'text-gray-500 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                <Icon size={18} />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* User Section */}
+        {user && (
+          <div className="p-4 border-t border-white/5">
+            <div className="text-xs text-gray-500 font-mono mb-2 truncate">{user.email}</div>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-2 rounded-lg text-xs font-bold transition-all border border-red-500/20"
+            >
+              Logout
+            </button>
+          </div>
+        )}
+      </aside>
+
+      {/* MOBILE HEADER */}
+      <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-[#1e1e1e] border-b border-white/5 px-4 py-3 flex items-center justify-between">
+        <h1 className="text-lg font-bold text-white flex items-center gap-2">
+          <Wallet className="text-blue-500" size={20} />
+          FinanceOS
+        </h1>
+        <button
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-2 text-gray-400 hover:text-white"
+        >
+          {isMobileMenuOpen ? <X size={24} /> : <List size={24} />}
+        </button>
+      </div>
+
+      {/* MOBILE SLIDE-OUT MENU */}
+      {isMobileMenuOpen && (
+        <div className="fixed top-0 left-0 bottom-0 w-64 bg-[#1e1e1e] z-50 md:hidden animate-in slide-in-from-left duration-200">
+          <div className="p-6 border-b border-white/5">
+            <h1 className="text-lg font-bold text-white flex items-center gap-2">
+              <Wallet className="text-blue-500" size={20} />
+              FinanceOS
+            </h1>
+          </div>
+          <nav className="p-4 space-y-1">
+            {NAVIGATION_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    setIsMobileMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                    isActive
+                      ? 'bg-blue-600/20 text-blue-500 border-r-2 border-blue-500'
+                      : 'text-gray-500 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <Icon size={18} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </nav>
+          {user && (
+            <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-white/5">
+              <div className="text-xs text-gray-500 font-mono mb-2 truncate">{user.email}</div>
+              <button
+                onClick={() => supabase.auth.signOut()}
+                className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-2 rounded-lg text-xs font-bold transition-all border border-red-500/20"
+              >
+                Logout
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* MAIN CONTENT AREA */}
+      <main className="flex-1 overflow-y-auto pt-16 md:pt-0">
+        {/* Top Header - Date Filter & Actions */}
+        <header className="sticky top-0 z-40 bg-[#191919]/90 backdrop-blur-md border-b border-white/5 px-4 py-4 md:px-6 flex justify-between items-center">
+          <div className="bg-[#232323] p-1 rounded-lg border border-white/5 flex text-xs font-medium shrink-0">
+            <button
+              onClick={() => setDateFilter('thisMonth')}
+              className={`px-3 py-1.5 rounded-md transition-all ${dateFilter === 'thisMonth' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+            >
+              Bulan Ini
+            </button>
+            <button
+              onClick={() => setDateFilter('all')}
+              className={`px-3 py-1.5 rounded-md transition-all ${dateFilter === 'all' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
+            >
+              Semua
+            </button>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {!user && (
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all border border-white/10"
+              >
+                Login / Daftar
+              </button>
+            )}
+            <button
+              onClick={() => {
+                if (!user) {
+                  alert("Mode Read-Only: Silakan Login untuk menambah/mengedit data.");
+                  setIsAuthModalOpen(true);
+                } else {
+                  setIsModalOpen(true);
+                }
+              }}
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-900/20 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all"
+            >
+              <Plus size={16} /> <span className="hidden sm:inline">Tambah Data</span>
+            </button>
+          </div>
+        </header>
+
+        {/* Page Content */}
+        <div className="p-4 md:p-6 max-w-7xl mx-auto">
+          {renderContent()}
+        </div>
+
+        {/* MODALS */}
+        <TransactionModal
+          isOpen={isModalOpen}
+          onClose={() => { setIsModalOpen(false); setEditingTransaction(null); }}
+          onSuccess={handleSaveTransaction}
+          initialData={editingTransaction}
+          userId={user?.id}
+        />
+
+        <SubscriptionModal
+          isOpen={isSubModalOpen}
+          onClose={() => setIsSubModalOpen(false)}
+          onSuccess={handleNewSubscription}
+          userId={user?.id}
+        />
+
+        <DebtPaymentModal
+          debt={selectedDebt}
+          onClose={() => setSelectedDebt(null)}
+          onSuccess={handleDebtPaymentSuccess}
+          userId={user?.id}
+        />
+
+        <TradeModal
+          isOpen={isTradeModalOpen}
+          onClose={() => setIsTradeModalOpen(false)}
+          onSuccess={handleNewTrade}
+          assets={assets}
+          portfolio={portfolio}
+          userId={user?.id}
+        />
+
+        <WaterfallSettingsModal
+          isOpen={isWaterfallSettingsOpen}
+          onClose={() => setIsWaterfallSettingsOpen(false)}
+          currentSettings={idealAllocation}
+          onSave={handleSaveWaterfallSettings}
+        />
+
+        <DatabaseModal
+          isOpen={isDatabaseModalOpen}
+          onClose={() => setIsDatabaseModalOpen(false)}
+          transactions={transactions}
+          onEdit={handleEditClick}
+          onDelete={handleDeleteTransaction}
+        />
+
+        <GoalModal
+          isOpen={isGoalModalOpen}
+          onClose={() => setIsGoalModalOpen(false)}
+          onSuccess={handleCreateGoal}
+          userId={user?.id}
+        />
+
+        <AddSavingsModal
+          goal={selectedGoal}
+          onClose={() => {
+            setIsAddSavingsModalOpen(false);
+            setSelectedGoal(null);
+          }}
+          onSuccess={handleSavingsSuccess}
+          userId={user?.id}
+        />
+
+        <DebtModal
+          isOpen={isDebtModalOpen}
+          onClose={() => setIsDebtModalOpen(false)}
+          onSuccess={handleCreateDebt}
+          userId={user?.id}
+        />
+
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+        />
+
+        <UserProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+          onSave={handleSaveUserProfile}
+          initialProfile={userProfile}
+        />
+      </main>
+
+      {/* MODE INDICATOR */}
       {USE_MOCK_DATA && (
         <div className="fixed bottom-4 right-4 z-50 bg-yellow-600 text-white text-xs px-3 py-1 rounded-full font-bold shadow-lg animate-pulse">
           MODE DEMO / MOCK
         </div>
       )}
 
-      {/* HEADER */}
-      <header className="sticky top-0 z-40 bg-[#191919]/90 backdrop-blur-md border-b border-white/5 px-4 py-4 md:px-6 flex justify-between items-center">
-        <div className="bg-[#232323] p-1 rounded-lg border border-white/5 flex text-xs font-medium shrink-0">
-          <button
-            onClick={() => setDateFilter('thisMonth')}
-            className={`px-3 py-1.5 rounded-md transition-all whitespace-nowrap ${dateFilter === 'thisMonth' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-          >
-            Bulan Ini
-          </button>
-          <button
-            onClick={() => setDateFilter('all')}
-            className={`px-3 py-1.5 rounded-md transition-all whitespace-nowrap ${dateFilter === 'all' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
-          >
-            Semua
-          </button>
-        </div>
-
-        {/* BAGIAN 2: TOMBOL TAMBAH (Diletakkan di Ujung Kanan) */}
-        <div className="flex items-center gap-3">
-
-          {/* LOGIC TOMBOL LOGIN / LOGOUT */}
-          {user ? (
-            <div className="flex items-center gap-3">
-              <span className="hidden md:inline text-xs text-gray-400 font-mono">{user.email}</span>
-              <button
-                onClick={() => supabase.auth.signOut()}
-                className="bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-2 rounded-lg text-xs font-bold transition-all border border-red-500/20"
-              >
-                Logout
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setIsAuthModalOpen(true)}
-              className="bg-white/5 hover:bg-white/10 text-white px-4 py-2 rounded-lg text-xs font-bold transition-all border border-white/10"
-            >
-              Login / Daftar
-            </button>
-          )}
-
-          {/* Tombol Tambah Data: Hanya aktif jika Login, jika Guest munculkan Login Modal */}
-          <button
-            onClick={() => {
-              if (!user) {
-                alert("Mode Read-Only: Silakan Login untuk menambah/mengedit data.");
-                setIsAuthModalOpen(true);
-              } else {
-                setIsModalOpen(true);
-              }
-            }}
-            className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-900/20 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-all whitespace-nowrap"
-          >
-            <Plus size={16} /> <span className="hidden sm:inline">Tambah Data</span><span className="sm:hidden">Baru</span>
-          </button>
-        </div>
-
-      </header>
-
-      {/* STYLE UNTUK ANIMASI RADIAL OUTWARDS */}
+      {/* ANIMATION STYLES */}
       <style dangerouslySetInnerHTML={{
         __html: `
         @keyframes flyOutRadial {
@@ -2801,467 +3899,6 @@ export default function FinancialFreedomOS() {
           }
         }
       `}} />
-
-      <main className="max-w-7xl mx-auto p-4 md:p-6 space-y-6">
-
-        {/* --- AI INSIGHT WIDGET (PALING ATAS) --- */}
-        <AIInsightWidget
-          insight={aiInsight}
-          isLoading={isAiLoading}
-          onGenerate={generateAIInsight}
-        />
-
-        {/* STAT CARDS */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-          <StatCard title="Kekayaan Bersih" value={formatCompact(netWorth)} type="neutral" icon={Wallet} subtext="Aset - Kewajiban" />
-          <StatCard title="Portofolio" value={formatCompact(totalAssetsValue)} type="pos" icon={TrendingUp} subtext={`${portfolio.length} Aktif`} />
-          <StatCard title="Pengeluaran" value={formatCompact(totalExpense)} type="neg" icon={TrendingDown} subtext="Bulan Ini" />
-          <StatCard
-            title="Arus Kas"
-            value={formatCompact(cashFlow)}
-            type={cashFlow >= 0 ? 'pos' : 'neg'}
-            icon={ArrowUpDown}
-            subtext={cashFlow >= 0 ? 'Surplus (Pemasukan > Pengeluaran)' : 'Defisit (Pengeluaran > Pemasukan)'}
-          />
-        </div>
-
-        {/* TOP ROW: WATERFALL & DEBTS */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-[#232323] border border-white/5 rounded-2xl p-4 md:p-6 shadow-lg h-auto">
-            <SectionHeader
-              title="Metode Waterfall Pengeluaran"
-              icon={Target}
-              action={
-                <button
-                  onClick={() => setIsWaterfallSettingsOpen(true)}
-                  className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-gray-500 hover:text-white"
-                  title="Atur Persentase Ideal"
-                >
-                  <Settings size={18} />
-                </button>
-              }
-            />
-
-            <div className="flex flex-col md:flex-row gap-6 pb-2">
-              {/* KOLOM GRAFIK (KIRI) - Memuat 2 Grafik */}
-              <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-6 sm:gap-2">
-
-                {/* DEFINISI CUSTOM TOOLTIP (Digunakan oleh kedua grafik) */}
-                {(() => {
-                  const renderCustomTooltip = ({ active, payload }: any) => {
-                    if (active && payload && payload.length) {
-                      const data = payload[0].payload;
-
-                      // LOGIKA ANIMASI: Hitung titik awal (lebih dekat ke pusat lingkaran)
-                      const RADIAN = Math.PI / 180;
-                      // Kita gunakan -40px mundur ke arah pusat sebagai titik start
-                      const startOffset = -40;
-                      const xOff = startOffset * Math.cos(-hoverAngle * RADIAN);
-                      const yOff = startOffset * Math.sin(-hoverAngle * RADIAN);
-
-                      return (
-                        <div
-                          className="bg-[#1a1a1a] border border-white/10 p-2 rounded-lg shadow-xl pointer-events-none"
-                          style={{
-                            // Mengirim koordinat start ke CSS
-                            '--x-start': `${xOff}px`,
-                            '--y-start': `${yOff}px`,
-                            // Menggunakan animasi custom yang kita buat di style tag
-                            animation: 'flyOutRadial 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards'
-                          } as React.CSSProperties}
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: data.color || payload[0].fill }}></div>
-                            <span className="text-[10px] font-bold text-gray-300 uppercase tracking-wider">{data.name}</span>
-                          </div>
-                          <div className="text-sm font-mono font-bold text-white text-center">
-                            {data.value > 100 ? formatCompact(Number(data.value)) : `${data.value}%`}
-                          </div>
-                        </div>
-                      );
-                    }
-                    return null;
-                  };
-
-                  const handlePieEnter = (data: any) => {
-                    const { cx, cy, midAngle, outerRadius } = data;
-                    const RADIAN = Math.PI / 180;
-                    const radius = outerRadius + 25; // Jarak tooltip dari lingkaran
-                    const x = cx + radius * Math.cos(-midAngle * RADIAN);
-                    const y = cy + radius * Math.sin(-midAngle * RADIAN);
-
-                    setTooltipPos({ x, y });
-                    setHoverAngle(midAngle); // SIMPAN SUDUT ANIMASI
-                  };
-
-                  return (
-                    <>
-                      {/* 1. Grafik IDEAL (TARGET) - SEKARANG DI KIRI */}
-                      <div className="relative flex flex-col items-center">
-                        <div className="h-40 w-full relative">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={idealWaterfallData}
-                                innerRadius={45}
-                                outerRadius={60}
-                                paddingAngle={5}
-                                dataKey="value"
-                                stroke="none"
-                                onMouseEnter={handlePieEnter}
-                                onMouseLeave={() => setTooltipPos(undefined)}
-                              >
-                                {idealWaterfallData.map((entry, index) => <Cell key={`cell-ideal-${index}`} fill={entry.color} opacity={0.6} />)}
-                              </Pie>
-                              <RechartsTooltip
-                                position={tooltipPos}
-                                content={renderCustomTooltip}
-                                cursor={false}
-                                wrapperStyle={{ pointerEvents: 'none' }}
-                              />
-                            </PieChart>
-                          </ResponsiveContainer>
-                          {/* Center Text Ideal */}
-                          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                            <span className="text-[10px] text-gray-500 uppercase font-bold">Target</span>
-                            <span className="text-sm font-bold text-white">100%</span>
-                          </div>
-                        </div>
-                        <span className="text-xs text-gray-400 mt-2">Ideal</span>
-                      </div>
-
-                      {/* 2. Grafik AKTUAL (REALITA) - SEKARANG DI KANAN */}
-                      <div className="relative flex flex-col items-center border-l border-white/5">
-                        <div className="h-40 w-full relative">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={waterfallData}
-                                innerRadius={45}
-                                outerRadius={60}
-                                paddingAngle={5}
-                                dataKey="value"
-                                stroke="none"
-                                onMouseEnter={handlePieEnter}
-                                onMouseLeave={() => setTooltipPos(undefined)}
-                              >
-                                {waterfallData.map((entry, index) => <Cell key={`cell-${index}`} fill={entry.color} />)}
-                              </Pie>
-                              <RechartsTooltip
-                                position={tooltipPos}
-                                content={renderCustomTooltip}
-                                cursor={false}
-                                wrapperStyle={{ pointerEvents: 'none' }}
-                              />
-                            </PieChart>
-                          </ResponsiveContainer>
-                          {/* Center Text Aktual */}
-                          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                            <span className="text-[10px] text-gray-500 uppercase font-bold">Aktual</span>
-                            <span className="text-sm font-bold text-white">{formatCompact(waterfallData.reduce((a, b) => a + b.value, 0))}</span>
-                          </div>
-                        </div>
-                        <span className="text-xs text-gray-400 mt-2">Realita</span>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-
-              {/* KOLOM RINCIAN (KANAN) */}
-              <div className="w-full md:w-1/3 space-y-3 border-t md:border-t-0 md:border-l border-white/5 pt-4 md:pt-0 md:pl-4">
-                <h4 className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-2">Perbandingan (Aktual vs Ideal)</h4>
-
-                {/* Loop item untuk membandingkan Actual vs Ideal */}
-                {[
-                  { key: 'needs', label: 'Needs', color: COLORS.needs },
-                  { key: 'wants', label: 'Wants', color: COLORS.wants },
-                  { key: 'savings', label: 'Savings', color: COLORS.savings },
-                  { key: 'liabilities', label: 'Liabilities', color: COLORS.liabilities },
-                ].map((cat) => {
-                  const actualVal = waterfallData.find(d => d.name.includes(cat.label))?.value || 0;
-                  const totalActual = waterfallData.reduce((a, b) => a + b.value, 0) || 1; // Avoid div by zero
-                  const actualPct = (actualVal / totalActual) * 100;
-                  const idealPct = idealAllocation[cat.key as keyof typeof idealAllocation];
-
-                  return (
-                    <div key={cat.key} className="group">
-                      <div className="flex justify-between text-xs mb-1">
-                        <span className="text-gray-300 flex items-center gap-1.5">
-                          <div className="w-1.5 h-1.5 rounded-full" style={{ background: cat.color }}></div>
-                          {cat.label}
-                        </span>
-                        <div className="text-right">
-                          <span className={`font-mono font-bold ${actualPct > idealPct ? 'text-red-400' : 'text-gray-400'}`}>
-                            {actualPct.toFixed(0)}%
-                          </span>
-                          <span className="text-[10px] text-gray-600 mx-1">/</span>
-                          <span className="text-[10px] text-gray-500">{idealPct}%</span>
-                        </div>
-                      </div>
-                      {/* Dual Progress Bar */}
-                      <div className="w-full h-1.5 bg-gray-800 rounded-full overflow-hidden relative">
-                        {/* Marker Ideal (Garis kecil putih transparan) */}
-                        <div className="absolute top-0 bottom-0 w-0.5 bg-white/50 z-10" style={{ left: `${idealPct}%` }}></div>
-                        {/* Bar Aktual */}
-                        <div
-                          className="h-full rounded-full transition-all duration-500"
-                          style={{ width: `${actualPct}%`, background: cat.color, opacity: actualPct > idealPct ? 1 : 0.7 }}
-                        ></div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-[#232323] border border-white/5 rounded-2xl p-6 shadow-lg flex flex-col h-full">
-            <SectionHeader
-              title="Daftar Utang"
-              icon={ShieldAlert}
-              action={
-                <button
-                  onClick={() => setIsDebtModalOpen(true)}
-                  className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-white border border-white/5 bg-white/5"
-                  title="Tambah Utang/Piutang"
-                >
-                  <Plus size={16} />
-                </button>
-              }
-            />
-
-            <div className="space-y-4 flex-1 max-h-[300px] overflow-y-auto custom-scrollbar pr-2">
-              {/* LOGIC: Cek apakah debts kosong? */}
-              {debts.length === 0 ? (
-                /* --- TAMPILAN JIKA KOSONG (BEBAS UTANG) --- */
-                <div className="h-full flex flex-col items-center justify-center py-8 text-center animate-in fade-in duration-500">
-                  <div className="bg-green-500/10 p-4 rounded-full mb-3">
-                    <ShieldCheck size={32} className="text-green-500" />
-                  </div>
-                  <h4 className="text-white font-medium text-sm">Bebas Utang!</h4>
-                  <p className="text-xs text-gray-500 max-w-[200px] mt-1">
-                    Luar biasa, Anda tidak memiliki catatan kewajiban aktif saat ini.
-                  </p>
-                </div>
-              ) : (
-                /* --- TAMPILAN JIKA ADA UTANG (RENDER LIST) --- */
-                debts.map(debt => (
-                  <div key={debt.id} className="p-3 bg-black/20 rounded-xl border border-white/5 hover:border-white/10 transition-colors group">
-                    {/* ... (Isi card hutang tetap sama seperti sebelumnya) ... */}
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <span className="text-white font-medium block">{debt.name}</span>
-                        <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded mt-1 inline-block ${debt.type === 'payable' ? 'bg-red-500/10 text-red-400' : 'bg-green-500/10 text-green-400'}`}>
-                          {debt.type === 'payable' ? 'Hutang' : 'Piutang'}
-                        </span>
-                      </div>
-
-                      {/* --- TEMPEL KODE BARU DI SINI --- */}
-                      <div className="flex gap-1">
-                        {debt.paid_amount < debt.total_amount && (
-                          <button
-                            onClick={() => openDebtModal(debt)}
-                            className={`p-1.5 rounded-lg transition-all opacity-100 lg:opacity-0 group-hover:opacity-100 ${debt.type === 'payable'
-                              ? 'bg-orange-600/20 text-orange-500 hover:bg-orange-600 hover:text-white'
-                              : 'bg-green-600/20 text-green-500 hover:bg-green-600 hover:text-white'
-                              }`}
-                            title={debt.type === 'payable' ? "Bayar Cicilan" : "Catat Penerimaan"}
-                          >
-                            {debt.type === 'payable' ? <Banknote size={14} /> : <Wallet size={14} />}
-                          </button>
-                        )}
-                        {/* TOMBOL DELETE (BARU) */}
-                        <button
-                          onClick={() => handleDeleteDebt(debt.id)}
-                          className="p-1.5 bg-gray-800 text-gray-500 hover:bg-red-500 hover:text-white rounded-lg transition-all opacity-100 lg:opacity-0 group-hover:opacity-100"
-                          title="Hapus Data Utang"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="w-full h-1.5 bg-gray-800 rounded-full mb-2 overflow-hidden relative">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${debt.type === 'payable' ? 'bg-orange-500' : 'bg-blue-500'}`}
-                        style={{ width: `${(debt.paid_amount / debt.total_amount) * 100}%` }}
-                      ></div>
-                    </div>
-
-                    <div className="flex justify-between text-[10px] text-gray-500 font-mono">
-                      <span>{formatCompact(debt.paid_amount)} lunas</span>
-                      <span>Sisa: {formatCompact(debt.total_amount - debt.paid_amount)}</span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* BOTTOM ROW: INVESTMENTS & ACTIVITY */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <InvestmentModule
-              positions={portfolio}
-              onAddTrade={() => setIsTradeModalOpen(true)}
-              onDeleteAsset={handleDeleteAsset}
-              onUpdatePrice={handleUpdateAssetPrice}
-            />
-          </div>
-
-          {/* Activity Module (Tidak berubah, hanya dirapikan) */}
-          <div className="bg-[#232323] border border-white/5 rounded-2xl p-6 shadow-lg">
-            <SectionHeader
-              title="Aktivitas"
-              icon={List}
-              action={
-                <button
-                  onClick={() => setIsDatabaseModalOpen(true)}
-                  className="text-xs text-blue-500 hover:text-blue-400 font-bold hover:underline"
-                >
-                  Lihat Semua
-                </button>
-              }
-            />
-
-            <div className="space-y-4">
-              {filteredTransactions.slice(0, 5).map(tx => (
-                <div key={tx.id} className="flex justify-between items-center group p-2 hover:bg-white/5 rounded-lg transition-all">
-                  <div className="flex items-center gap-3">
-                    <div className={`p-2 rounded-lg ${tx.type === 'income' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'}`}>
-                      {tx.type === 'income' ? <Wallet size={16} /> : <CreditCard size={16} />}
-                    </div>
-                    <div>
-                      <div className="text-sm font-medium text-white">{tx.title}</div>
-                      <div className="text-[10px] text-gray-500 uppercase">{tx.financial_tag}</div>
-                    </div>
-                  </div>
-                  <span className={`font-mono text-sm ${tx.type === 'income' ? 'text-green-400' : 'text-white'}`}>
-                    {tx.type === 'income' ? '+' : '-'}{formatCompact(tx.amount)}
-                  </span>
-                </div>
-              ))}
-
-              {filteredTransactions.length === 0 && (
-                <div className="text-center py-4 text-gray-500 text-xs italic">
-                  Tidak ada transaksi untuk periode ini.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* ROW 4: SUBSCRIPTIONS & GOALS */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Subscription Module (Kiri) */}
-          <div className="lg:col-span-1">
-            <SubscriptionModule
-              subscriptions={subscriptions}
-              onAddClick={() => setIsSubModalOpen(true)}
-              onDelete={handleDeleteSubscription}
-            />
-          </div>
-
-          {/* Financial Goals Widget (Kanan - Mengisi sisa ruang) */}
-          <div className="lg:col-span-2">
-            <FinancialGoalsWidget
-              goals={goals}
-              onOpenAddSavings={openAddSavingsModal} // Hubungkan ke modal slider
-              onOpenCreateGoal={() => setIsGoalModalOpen(true)} // Hubungkan ke modal buat goal
-              onDelete={handleDeleteGoal}
-            />
-          </div>
-        </div>
-
-        {/* MODAL */}
-        {/* 1. Modal Transaksi */}
-        <TransactionModal
-          isOpen={isModalOpen}
-          onClose={() => { setIsModalOpen(false); setEditingTransaction(null); }} // Reset edit saat close
-          onSuccess={handleSaveTransaction}
-          initialData={editingTransaction}
-          userId={user?.id}
-        />
-
-        {/* 2. Modal Subscription (BARU) */}
-        <SubscriptionModal
-          isOpen={isSubModalOpen}
-          onClose={() => setIsSubModalOpen(false)}
-          onSuccess={handleNewSubscription}
-          userId={user?.id}
-        />
-
-        {/* 3. Modal Pembayaran Utang (BARU) */}
-        <DebtPaymentModal
-          debt={selectedDebt}
-          onClose={() => setSelectedDebt(null)}
-          onSuccess={handleDebtPaymentSuccess}
-          userId={user?.id}
-        />
-
-        {/* 4. MODAL TRADE (Tambahkan kode ini di bawah modal lainnya) */}
-        <TradeModal
-          isOpen={isTradeModalOpen}
-          onClose={() => setIsTradeModalOpen(false)}
-          onSuccess={handleNewTrade}
-          assets={assets}
-          portfolio={portfolio}
-          userId={user?.id}
-        />
-
-        {/* 5. MODAL SETTINGS WATERFALL (BARU) */}
-        <WaterfallSettingsModal
-          isOpen={isWaterfallSettingsOpen}
-          onClose={() => setIsWaterfallSettingsOpen(false)}
-          currentSettings={idealAllocation}
-          onSave={handleSaveWaterfallSettings}
-        />
-
-        {/* 6. MODAL DATABASE (BARU) */}
-        <DatabaseModal
-          isOpen={isDatabaseModalOpen}
-          onClose={() => setIsDatabaseModalOpen(false)}
-          transactions={transactions}
-          onEdit={handleEditClick}
-          onDelete={handleDeleteTransaction}
-        />
-
-        {/* 7. MODAL BUAT GOAL BARU */}
-        <GoalModal
-          isOpen={isGoalModalOpen}
-          onClose={() => setIsGoalModalOpen(false)}
-          onSuccess={handleCreateGoal}
-          userId={user?.id}
-        />
-
-        {/* 8. MODAL TAMBAH TABUNGAN (SLIDER) */}
-        <AddSavingsModal
-          goal={selectedGoal}
-          onClose={() => {
-            setIsAddSavingsModalOpen(false);
-            setSelectedGoal(null); // <--- WAJIB DITAMBAHKAN: Agar modal tahu datanya sudah hilang
-          }}
-          onSuccess={handleSavingsSuccess}
-          userId={user?.id}
-        />
-
-        {/* 9. MODAL TAMBAH UTANG (BARU) */}
-        <DebtModal
-          isOpen={isDebtModalOpen}
-          onClose={() => setIsDebtModalOpen(false)}
-          onSuccess={handleCreateDebt}
-          userId={user?.id}
-        />
-
-        {/* 10. AUTH MODAL (BARU) */}
-        <AuthModal
-          isOpen={isAuthModalOpen}
-          onClose={() => setIsAuthModalOpen(false)}
-        />
-
-      </main>
     </div>
   );
 }
