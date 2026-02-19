@@ -207,3 +207,6 @@ temp/
 # ✅ supabase/functions/ (code function TANPA .env)
 # ✅ README.md
 # ✅ .gitignore ini
+
+.qwen/
+gha-creds-*.json

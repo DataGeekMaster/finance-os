@@ -1,21 +1,23 @@
 | Nama Tabel    | Isi Kolom & Tipe Data                                                                                                                                                                                                                                                                                                                                 | Relasi (Foreign Keys)                                     |
 | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| assets        | id (uuid), updated_at (timestamp with time zone), user_id (uuid), created_at (timestamp with time zone), logo_url (text), current_price (numeric), class (USER-DEFINED), name (text), ticker (text)                                                                                                                                                   | Tidak ada relasi (Berdiri sendiri)                        |
-| debts         | id (uuid), name (text), total_amount (numeric), paid_amount (numeric), type (USER-DEFINED), due_date (date), created_at (timestamp with time zone), user_id (uuid)                                                                                                                                                                                    | Tidak ada relasi (Berdiri sendiri)                        |
-| goals         | id (uuid), user_id (uuid), due_date (date), emoji (text), current_amount (numeric), target_amount (numeric), name (text), created_at (timestamp with time zone)                                                                                                                                                                                       | Tidak ada relasi (Berdiri sendiri)                        |
-| subscriptions | user_id (uuid), id (uuid), name (text), cost (numeric), billing_cycle (text), next_payment_date (date), category (text), is_active (boolean), created_at (timestamp with time zone)                                                                                                                                                                   | Tidak ada relasi (Berdiri sendiri)                        |
-| trades        | quantity (numeric), id (uuid), asset_id (uuid), type (text), price (numeric), fee (numeric), date (date), created_at (timestamp with time zone), user_id (uuid)                                                                                                                                                                                       | asset_id ➔ assets(id), asset_id ➔ assets(id)              |
-| transactions  | reference_id (uuid), date (date), financial_tag (USER-DEFINED), category (text), type (USER-DEFINED), amount (numeric), title (text), id (uuid), created_at (timestamp with time zone), user_id (uuid), wallet_id (uuid), split_from_id (uuid), is_split (boolean), split_total_amount (numeric), split_participants (integer), reference_type (text) | wallet_id ➔ wallets(id), split_from_id ➔ transactions(id) |
-| user_profiles | created_at (timestamp with time zone), id (uuid), user_id (uuid), occupation (text), occupation_label (text), monthly_income (numeric), has_debt (boolean), financial_goals (text), risk_profile (text), notes (text), updated_at (timestamp with time zone)                                                                                          | Tidak ada relasi (Berdiri sendiri)                        |
-| user_settings | user_id (uuid), needs_pct (numeric), wants_pct (numeric), savings_pct (numeric), liabilities_pct (numeric), created_at (timestamp with time zone), updated_at (timestamp with time zone)                                                                                                                                                              | Tidak ada relasi (Berdiri sendiri)                        |
-| wallets       | created_at (timestamp with time zone), is_active (boolean), color (text), icon (text), id (uuid), balance (numeric), name (text), user_id (uuid), updated_at (timestamp with time zone)                                                                                                                                                               | Tidak ada relasi (Berdiri sendiri)                        |
+| assets        | name (text), sector (text), asset_type (text), updated_at (timestamp with time zone), user_id (uuid), created_at (timestamp with time zone), logo_url (text), current_price (numeric), class (USER-DEFINED), id (uuid), ticker (text)                                                                                                                 | Tidak ada relasi (Berdiri sendiri)                        |
+| debts         | name (text), notes (text), user_id (uuid), created_at (timestamp with time zone), due_date (date), type (USER-DEFINED), paid_amount (numeric), id (uuid), total_amount (numeric)                                                                                                                                                                      | Tidak ada relasi (Berdiri sendiri)                        |
+| goals         | created_at (timestamp with time zone), user_id (uuid), due_date (date), emoji (text), current_amount (numeric), target_amount (numeric), name (text), id (uuid)                                                                                                                                                                                       | Tidak ada relasi (Berdiri sendiri)                        |
+| subscriptions | name (text), id (uuid), user_id (uuid), created_at (timestamp with time zone), is_active (boolean), category (text), next_payment_date (date), billing_cycle (text), cost (numeric)                                                                                                                                                                   | Tidak ada relasi (Berdiri sendiri)                        |
+| trades        | price (numeric), id (uuid), asset_id (uuid), type (text), quantity (numeric), fee (numeric), date (date), created_at (timestamp with time zone), user_id (uuid)                                                                                                                                                                                       | asset_id ➔ assets(id), asset_id ➔ assets(id)              |
+| transactions  | id (uuid), reference_id (uuid), financial_tag (USER-DEFINED), category (text), type (USER-DEFINED), date (date), reference_type (text), created_at (timestamp with time zone), user_id (uuid), split_participants (integer), split_total_amount (numeric), is_split (boolean), split_from_id (uuid), wallet_id (uuid), amount (numeric), title (text) | wallet_id ➔ wallets(id), split_from_id ➔ transactions(id) |
+| user_profiles | user_id (uuid), updated_at (timestamp with time zone), id (uuid), occupation (text), occupation_label (text), monthly_income (numeric), has_debt (boolean), financial_goals (text), risk_profile (text), notes (text), created_at (timestamp with time zone)                                                                                          | Tidak ada relasi (Berdiri sendiri)                        |
+| user_settings | created_at (timestamp with time zone), wants_pct (numeric), needs_pct (numeric), liabilities_pct (numeric), savings_pct (numeric), user_id (uuid), updated_at (timestamp with time zone)                                                                                                                                                              | Tidak ada relasi (Berdiri sendiri)                        |
+| wallets       | name (text), user_id (uuid), updated_at (timestamp with time zone), id (uuid), created_at (timestamp with time zone), is_active (boolean), color (text), icon (text), balance (numeric)                                                                                                                                                               | Tidak ada relasi (Berdiri sendiri)                        |
 
 ## 📝 Detail Tabel
 
 ### `transactions`
+
 Tabel utama untuk mencatat semua pemasukan dan pengeluaran keuangan.
 
 **Kolom:**
+
 - `id` - UUID primary key
 - `user_id` - Reference ke auth.users
 - `title` - Judul/nama transaksi
@@ -34,14 +36,17 @@ Tabel utama untuk mencatat semua pemasukan dan pengeluaran keuangan.
 - `created_at` - Timestamp pembuatan
 
 **RLS Policies:**
+
 - Users can only view/modify their own transactions
 
 ---
 
 ### `wallets`
+
 Tabel untuk sistem multi-wallet (mengelola beberapa dompet/akun sekaligus).
 
 **Kolom:**
+
 - `id` - UUID primary key
 - `user_id` - Reference ke auth.users
 - `name` - Nama wallet (contoh: "BCA", "GoPay", "Cash")
@@ -53,17 +58,21 @@ Tabel untuk sistem multi-wallet (mengelola beberapa dompet/akun sekaligus).
 - `updated_at` - Timestamp update terakhir
 
 **Trigger:**
+
 - Auto-update balance saat INSERT/UPDATE/DELETE transaksi
 
 **RLS Policies:**
+
 - Users can only view/modify their own wallets
 
 ---
 
 ### `assets`
+
 Tabel untuk menyimpan daftar aset investasi (saham, crypto, emas, dll).
 
 **Kolom:**
+
 - `id` - UUID primary key
 - `user_id` - Reference ke auth.users
 - `ticker` - Kode ticker (contoh: "BBCA", "BTC", "GOLD")
@@ -75,14 +84,17 @@ Tabel untuk menyimpan daftar aset investasi (saham, crypto, emas, dll).
 - `updated_at` - Timestamp update terakhir
 
 **RLS Policies:**
+
 - Users can only view/modify their own assets
 
 ---
 
 ### `trades`
+
 Tabel untuk mencatat riwayat transaksi jual/beli aset investasi.
 
 **Kolom:**
+
 - `id` - UUID primary key
 - `user_id` - Reference ke auth.users
 - `asset_id` - Reference ke assets
@@ -94,14 +106,17 @@ Tabel untuk mencatat riwayat transaksi jual/beli aset investasi.
 - `created_at` - Timestamp pembuatan
 
 **RLS Policies:**
+
 - Users can only view/modify their own trades
 
 ---
 
 ### `goals`
+
 Tabel untuk menabung demi tujuan keuangan tertentu (sinking funds).
 
 **Kolom:**
+
 - `id` - UUID primary key
 - `user_id` - Reference ke auth.users
 - `name` - Nama tujuan (contoh: "Liburan ke Jepang", "MacBook Pro")
@@ -112,14 +127,17 @@ Tabel untuk menabung demi tujuan keuangan tertentu (sinking funds).
 - `created_at` - Timestamp pembuatan
 
 **RLS Policies:**
+
 - Users can only view/modify their own goals
 
 ---
 
 ### `debts`
+
 Tabel untuk mengelola utang (payable) dan piutang (receivable).
 
 **Kolom:**
+
 - `id` - UUID primary key
 - `user_id` - Reference ke auth.users
 - `name` - Nama utang/piutang (contoh: "Pinjaman Bank", "Piutang Teman")
@@ -131,14 +149,17 @@ Tabel untuk mengelola utang (payable) dan piutang (receivable).
 - `created_at` - Timestamp pembuatan
 
 **RLS Policies:**
+
 - Users can only view/modify their own debts
 
 ---
 
 ### `subscriptions`
+
 Tabel untuk melacak langganan berulang (Netflix, Spotify, dll).
 
 **Kolom:**
+
 - `id` - UUID primary key
 - `user_id` - Reference ke auth.users
 - `name` - Nama langganan (contoh: "Netflix Premium")
@@ -150,21 +171,28 @@ Tabel untuk melacak langganan berulang (Netflix, Spotify, dll).
 - `created_at` - Timestamp pembuatan
 
 **RLS Policies:**
+
 - Users can only view/modify their own subscriptions
 
 ---
 
 ### `user_profiles`
-Tabel untuk menyimpan profil keuangan pengguna guna personalisasi AI Financial Advisor.
+
+Tabel untuk menyimpan profil keuangan pengguna guna personalisasi AI Financial
+Advisor.
 
 **Kolom:**
+
 - `id` - UUID primary key
 - `user_id` - Reference ke auth.users (UNIQUE)
-- `occupation` - Pekerjaan: `student`, `employee`, `entrepreneur`, `freelancer`, `other`
-- `occupation_label` - Label custom (contoh: "Mahasiswa Semester 5", "Karyawan IT")
+- `occupation` - Pekerjaan: `student`, `employee`, `entrepreneur`, `freelancer`,
+  `other`
+- `occupation_label` - Label custom (contoh: "Mahasiswa Semester 5", "Karyawan
+  IT")
 - `monthly_income` - Penghasilan bulanan dalam IDR
 - `has_debt` - Boolean, apakah punya utang
-- `financial_goals` - String tujuan keuangan (contoh: "Dana darurat, Beli rumah")
+- `financial_goals` - String tujuan keuangan (contoh: "Dana darurat, Beli
+  rumah")
 - `risk_profile` - Profil risiko investasi:
   - `not_started` - Belum mulai investasi
   - `conservative` - Konservatif (aman, return kecil)
@@ -175,9 +203,11 @@ Tabel untuk menyimpan profil keuangan pengguna guna personalisasi AI Financial A
 - `updated_at` - Timestamp update terakhir
 
 **Trigger:**
+
 - Auto-update `updated_at` saat ada perubahan
 
 **RLS Policies:**
+
 - Users can view own profile
 - Users can insert own profile
 - Users can update own profile
@@ -185,9 +215,11 @@ Tabel untuk menyimpan profil keuangan pengguna guna personalisasi AI Financial A
 ---
 
 ### `user_settings`
+
 Tabel untuk menyimpan pengaturan persentase alokasi keuangan (Waterfall Method).
 
 **Kolom:**
+
 - `user_id` - UUID primary key (reference ke auth.users)
 - `needs_pct` - Persentase untuk Needs (default: 50%)
 - `wants_pct` - Persentase untuk Wants (default: 30%)
@@ -197,10 +229,12 @@ Tabel untuk menyimpan pengaturan persentase alokasi keuangan (Waterfall Method).
 - `updated_at` - Timestamp update terakhir
 
 **Default Allocation (50/30/20/0 Rule):**
+
 - Needs: 50% (kebutuhan pokok)
 - Wants: 30% (keinginan)
 - Savings: 20% (tabungan/investasi)
 - Liabilities: 0% (utang)
 
 **RLS Policies:**
+
 - Users can only view/modify their own settings

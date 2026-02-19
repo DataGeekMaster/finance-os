@@ -11,12 +11,14 @@ import {
   Banknote, Target, ShieldAlert, LayoutDashboard,
   Settings, Trash2, Edit2, X, Database, ShieldCheck,
   RotateCcw, CalendarDays, ArrowUpDown, Download,
-  Landmark, Zap, List, Sparkles, Bot, RefreshCw,
+  Zap, List, Sparkles, Bot, RefreshCw,
   PiggyBank, Users, LineChart as LineChartIcon
 } from 'lucide-react';
+import Link from 'next/link';
 
 import { createClient } from '@supabase/supabase-js';
 import UserProfileModal from './components/UserProfileModal';
+import PageHeader from './components/PageHeader';
 
 // UBAH INI KE 'false' JIKA INGIN MENGGUNAKAN DATA SUPABASE ASLI
 const USE_MOCK_DATA = false;
@@ -33,7 +35,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 type FinancialTag = 'needs' | 'wants' | 'savings' | 'liabilities';
 type TransactionType = 'income' | 'expense';
 type AssetClass = 'stock' | 'crypto' | 'gold' | 'cash' | 'bond';
-type TabId = 'dashboard' | 'cashflow' | 'investments' | 'goals_debts' | 'analytics';
+type TabId = 'dashboard' | 'cashflow' | 'goals_debts' | 'analytics';
 
 interface Wallet {
   id: string;
@@ -307,99 +309,6 @@ const SectionHeader = ({ title, icon: Icon, action }: any) => (
   </div>
 );
 
-const InvestmentModule = ({
-  positions,
-  onAddTrade,
-  onDeleteAsset, // <--- Props Baru
-  onUpdatePrice
-}: {
-  positions: PortfolioPosition[],
-  onAddTrade: () => void,
-  onDeleteAsset: (id: string) => void, // <--- Type def
-  onUpdatePrice: (id: string, currentPrice: number) => void;
-}) => {
-  const totalValue = positions.reduce((acc, p) => acc + p.currentValue, 0);
-
-  return (
-    <div className="bg-[#232323] border border-white/5 rounded-2xl p-6 shadow-lg h-full relative">
-      <SectionHeader
-        title="Portofolio Investasi"
-        icon={Landmark}
-        action={
-          <div className="flex items-center gap-3">
-            <div className="text-xs text-gray-500 font-mono hidden md:block">Total: {formatCompact(totalValue)}</div>
-            <button
-              onClick={onAddTrade}
-              className="bg-white/5 hover:bg-white/10 text-white p-1.5 rounded-lg transition-all border border-white/5"
-              title="Trade Baru"
-            >
-              <Plus size={16} />
-            </button>
-          </div>
-        }
-      />
-
-      <div className="flex h-2 rounded-full overflow-hidden mb-6 bg-gray-800">
-        {positions.map((p, i) => (
-          <div key={p.asset.id} style={{ width: `${p.allocation}%`, backgroundColor: ['#3b82f6', '#8b5cf6', '#f97316', '#22c55e'][i % 4] }} />
-        ))}
-      </div>
-
-      <div className="overflow-x-auto custom-scrollbar -mx-4 px-4 md:mx-0 md:px-0">
-        <table className="w-full text-left text-sm min-w-[500px]">
-          <thead className="sticky top-0 bg-[#232323] z-10 shadow-sm shadow-black/20">
-            <tr className="text-gray-500 border-b border-white/5">
-              <th className="pb-3 pt-2 font-medium">Aset</th>
-              <th className="pb-3 pt-2 font-medium text-right">Qty</th>
-              <th className="pb-3 pt-2 font-medium text-right">Avg Beli</th>
-              <th className="pb-3 pt-2 font-medium text-right">Avg Sekarang</th>
-              <th className="pb-3 pt-2 font-medium text-right">PnL</th>
-              <th className="pb-3 pt-2 font-medium text-center w-8"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5">
-            {positions.map((p) => (
-              <tr key={p.asset.id} className="group hover:bg-white/5 transition-colors">
-                <td className="py-3">
-                  <div className="font-bold text-white">{p.asset.ticker}</div>
-                  <div className="text-xs text-gray-500 uppercase">{p.asset.class}</div>
-                </td>
-                <td className="py-3 text-right text-gray-300 font-mono">{p.quantity}</td>
-                <td className="py-3 text-right text-gray-300 font-mono">{formatStockPrice(p.avgBuyPrice)}</td>
-                <td
-                  className="py-3 text-right font-bold text-white font-mono cursor-pointer hover:text-blue-400 decoration-dotted underline underline-offset-4"
-                  onClick={() => onUpdatePrice(p.asset.id, p.asset.current_price)}
-                  title="Klik untuk update harga pasar manual"
-                >
-                  {formatStockPrice(p.asset.current_price)}
-                </td>
-                <td className="py-3 text-right">
-                  <div className={`font-mono font-bold ${p.unrealizedPnL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    {p.unrealizedPnL >= 0 ? '+' : ''}{formatCompact(p.unrealizedPnL)}
-                  </div>
-                  <div className={`text-[10px] ${p.unrealizedPnLPct >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                    {p.unrealizedPnLPct.toFixed(2)}%
-                  </div>
-                </td>
-                {/* TOMBOL DELETE */}
-                <td className="py-3 text-center">
-                  <button
-                    onClick={() => onDeleteAsset(p.asset.id)}
-                    className="text-gray-600 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                    title="Hapus Aset"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-};
-
 // ==========================================
 // 5.4. NEW COMPONENT: SUBSCRIPTION MODULE
 // ==========================================
@@ -502,13 +411,15 @@ const TransactionModal = ({
   onClose,
   onSuccess,
   initialData = null,
-  userId
+  userId,
+  wallets = []
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (t: Transaction, action: 'create' | 'update') => void;
   initialData?: Transaction | null;
   userId?: string;
+  wallets?: Wallet[];
 }) => {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -519,7 +430,8 @@ const TransactionModal = ({
     date: new Date().toISOString().split('T')[0],
     type: 'expense' as TransactionType,
     category: EXPENSE_CATEGORIES[0], // Default category
-    financial_tag: 'needs' as FinancialTag | ''
+    financial_tag: 'needs' as FinancialTag | '',
+    wallet_id: wallets[0]?.id || ''
   });
 
   useEffect(() => {
@@ -531,7 +443,8 @@ const TransactionModal = ({
           date: initialData.date,
           type: initialData.type,
           category: initialData.category,
-          financial_tag: initialData.financial_tag || ''
+          financial_tag: initialData.financial_tag || '',
+          wallet_id: initialData.wallet_id || wallets[0]?.id || ''
         });
       } else {
         // Reset form saat modal dibuka untuk tambah data baru
@@ -541,11 +454,12 @@ const TransactionModal = ({
           date: new Date().toISOString().split('T')[0],
           type: 'expense',
           category: EXPENSE_CATEGORIES[0],
-          financial_tag: 'needs'
+          financial_tag: 'needs',
+          wallet_id: wallets[0]?.id || ''
         });
       }
     }
-  }, [isOpen, initialData]);
+  }, [isOpen, initialData, wallets]);
 
   if (!isOpen) return null;
   const isEditMode = !!initialData;
@@ -567,6 +481,7 @@ const TransactionModal = ({
 
     try {
       if (!formData.title || !formData.amount) throw new Error("Mohon lengkapi data");
+      if (!formData.wallet_id) throw new Error("Pilih dompet/sumber dana terlebih dahulu");
 
       if (!USE_MOCK_DATA && !userId) {
         throw new Error("Anda harus login untuk menyimpan data.");
@@ -579,7 +494,8 @@ const TransactionModal = ({
         type: formData.type,
         category: formData.category,
         financial_tag: formData.type === 'income' ? null : formData.financial_tag,
-        user_id: userId
+        user_id: userId,
+        wallet_id: formData.wallet_id
       };
 
       if (USE_MOCK_DATA) {
@@ -681,6 +597,29 @@ const TransactionModal = ({
                 <label className={labelClass}>Tanggal</label>
                 <input type="date" required className={`${inputClass} [color-scheme:dark]`} value={formData.date} onChange={e => setFormData({ ...formData, date: e.target.value })} />
               </div>
+            </div>
+
+            {/* Wallet Selection */}
+            <div>
+              <label className={labelClass}>Dompet / Sumber Dana</label>
+              <select
+                required
+                className="w-full bg-[#151515] border border-white/10 rounded-xl p-3 text-white focus:border-blue-500 focus:outline-none transition-colors text-sm cursor-pointer appearance-none"
+                value={formData.wallet_id}
+                onChange={e => setFormData({ ...formData, wallet_id: e.target.value })}
+              >
+                <option value="" disabled>-- Pilih Dompet --</option>
+                {wallets.map(w => (
+                  <option key={w.id} value={w.id}>
+                    {w.icon} {w.name} (Saldo: {formatCurrency(w.balance)})
+                  </option>
+                ))}
+              </select>
+              {wallets.length === 0 && (
+                <p className="text-[10px] text-amber-400 mt-1">
+                  ⚠️ Belum ada dompet. Silakan tambahkan dompet di halaman Dompet.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 gap-4">
@@ -1400,7 +1339,10 @@ const DatabaseModal = ({
   );
 
   // Extract Unique Categories for Filter
-  const categories = Array.from(new Set(transactions.map(t => t.category)));
+  const categories = Array.from(new Set(transactions
+    .filter(t => typeFilter === 'all' ? true : t.type === typeFilter)
+    .map(t => t.category)
+  )).sort();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 backdrop-blur-sm">
@@ -1441,7 +1383,11 @@ const DatabaseModal = ({
             <select
               className="bg-[#151515] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-blue-500 outline-none appearance-none cursor-pointer min-w-[120px]"
               value={typeFilter}
-              onChange={(e) => { setTypeFilter(e.target.value as any); setCurrentPage(1); }}
+              onChange={(e) => { 
+                setTypeFilter(e.target.value as any); 
+                setCategoryFilter('all'); // Reset kategori saat tipe berubah
+                setCurrentPage(1); 
+              }}
             >
               <option value="all">Semua Tipe</option>
               <option value="income">Pemasukan</option>
@@ -1453,7 +1399,9 @@ const DatabaseModal = ({
               value={categoryFilter}
               onChange={(e) => { setCategoryFilter(e.target.value); setCurrentPage(1); }}
             >
-              <option value="all">Semua Kategori</option>
+              <option value="all">
+                {typeFilter === 'all' ? 'Semua Kategori' : typeFilter === 'income' ? 'Semua Pemasukan' : 'Semua Pengeluaran'}
+              </option>
               {categories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
@@ -2285,34 +2233,8 @@ export default function FinancialFreedomOS() {
   const NAVIGATION_ITEMS = [
     { id: 'dashboard' as const, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'cashflow' as const, label: 'Arus Kas', icon: ArrowUpDown },
-    { id: 'investments' as const, label: 'Investasi', icon: TrendingUp },
     { id: 'goals_debts' as const, label: 'Target & Kewajiban', icon: Target },
-    { id: 'analytics' as const, label: 'Analisis Data', icon: LineChartIcon },
   ] as const;
-
-  const handleUpdateAssetPrice = async (assetId: string, currentPrice: number) => {
-    const newPrice = prompt("Masukkan harga pasar terbaru:", String(currentPrice));
-    if (!newPrice) return;
-
-    const priceNum = Number(newPrice);
-    if (!priceNum || priceNum <= 0) return;
-
-    try {
-      // Update ke Supabase
-      if (!USE_MOCK_DATA) {
-        const { error } = await supabase
-          .from('assets')
-          .update({ current_price: priceNum })
-          .eq('id', assetId);
-        if (error) throw error;
-      }
-
-      // Update State Lokal (Agar UI langsung berubah & PnL terhitung ulang otomatis)
-      setAssets(prev => prev.map(a => a.id === assetId ? { ...a, current_price: priceNum } : a));
-    } catch (error: any) {
-      alert("Gagal update harga: " + error.message);
-    }
-  };
 
   // 1. EFFECT: CEK STATUS USER
   useEffect(() => {
@@ -2709,25 +2631,6 @@ export default function FinancialFreedomOS() {
     }
   };
 
-  // 4. Delete Asset (Investasi)
-  const handleDeleteAsset = async (id: string) => {
-    if (!window.confirm("Hapus aset ini dari portofolio? Semua history trade aset ini juga harus dihapus.")) return;
-    try {
-      if (USE_MOCK_DATA) {
-        setAssets(prev => prev.filter(a => a.id !== id));
-        setTrades(prev => prev.filter(t => t.asset_id !== id)); // Hapus trades terkait
-      } else {
-        await supabase.from('trades').delete().eq('asset_id', id);
-        const { error } = await supabase.from('assets').delete().eq('id', id);
-        if (error) throw error;
-        setAssets(prev => prev.filter(a => a.id !== id));
-        setTrades(prev => prev.filter(t => t.asset_id !== id));
-      }
-    } catch (err: any) {
-      alert("Gagal hapus: " + err.message);
-    }
-  };
-
   // ==========================================
   // NEW FEATURE HANDLERS
   // ==========================================
@@ -3091,6 +2994,15 @@ export default function FinancialFreedomOS() {
   // Ubah 'transactions' menjadi 'filteredTransactions' di sini
   const totalExpense = filteredTransactions.filter(t => t.type === 'expense').reduce((acc, t) => acc + t.amount, 0);
   const totalIncome = filteredTransactions.filter(t => t.type === 'income').reduce((acc, t) => acc + t.amount, 0);
+  
+  // Total Income for current month (used in dashboard)
+  const totalIncomeCurrentMonth = transactions
+    .filter(t => {
+      const now = new Date();
+      const currentMonthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      return t.type === 'income' && t.date.startsWith(currentMonthPrefix);
+    })
+    .reduce((acc, t) => acc + t.amount, 0);
 
   const cashFlow = totalIncome - totalExpense;
 
@@ -3138,7 +3050,7 @@ export default function FinancialFreedomOS() {
             {/* STAT CARDS */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
               <StatCard title="Kekayaan Bersih" value={formatCompact(netWorth)} type="neutral" icon={Wallet} subtext="Aset - Kewajiban" />
-              <StatCard title="Portofolio" value={formatCompact(totalAssetsValue)} type="pos" icon={TrendingUp} subtext={`${portfolio.length} Aktif`} />
+              <StatCard title="Total Income" value={formatCompact(totalIncomeCurrentMonth)} type="pos" icon={TrendingUp} subtext="Bulan Ini" />
               <StatCard title="Pengeluaran" value={formatCompact(totalExpense)} type="neg" icon={TrendingDown} subtext="Bulan Ini" />
               <StatCard
                 title="Arus Kas"
@@ -3222,19 +3134,55 @@ export default function FinancialFreedomOS() {
                           <RechartsTooltip
                             content={({ active, payload }) => {
                               if (active && payload && payload.length) {
+                                const data = payload[0]?.payload;
+                                const color = [COLORS.needs, COLORS.wants, COLORS.savings, COLORS.liabilities][
+                                  waterfallComparisonData.findIndex(item => item.name === data?.name) % 4
+                                ];
                                 return (
                                   <div className="bg-[#1a1a1a] border border-white/10 p-2 rounded-lg shadow-xl">
-                                    <p className="text-xs font-bold text-white">{payload[0]?.payload.name}</p>
-                                    <p className="text-xs text-blue-400">Aktual: {payload[0]?.value}%</p>
-                                    <p className="text-xs text-green-400">Ideal: {payload[1]?.value}%</p>
+                                    <p className="text-xs font-bold text-white mb-1">{data?.name}</p>
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <div className="w-2 h-2 rounded-sm" style={{ backgroundColor: color }} />
+                                      <p className="text-xs font-bold" style={{ color }}>Aktual: {payload[0]?.value}%</p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <div className="w-2 h-2 rounded-sm border border-dashed" style={{ borderColor: color, backgroundColor: `${color}4D` }} />
+                                      <p className="text-xs text-gray-400">Ideal: {payload[1]?.value}%</p>
+                                    </div>
                                   </div>
                                 );
                               }
                               return null;
                             }}
                           />
-                          <Bar dataKey="actual" fill="#3b82f6" name="Aktual" />
-                          <Bar dataKey="ideal" fill="#22c55e" name="Ideal" />
+                          <Bar dataKey="actual" name="Aktual">
+                            {waterfallComparisonData.map((entry, index) => {
+                              const color = [COLORS.needs, COLORS.wants, COLORS.savings, COLORS.liabilities][index % 4];
+                              return (
+                                <Cell
+                                  key={`cell-actual-${index}`}
+                                  fill={color}
+                                  stroke={color}
+                                  strokeWidth={1}
+                                />
+                              );
+                            })}
+                          </Bar>
+                          <Bar dataKey="ideal" name="Ideal">
+                            {waterfallComparisonData.map((entry, index) => {
+                              const color = [COLORS.needs, COLORS.wants, COLORS.savings, COLORS.liabilities][index % 4];
+                              return (
+                                <Cell
+                                  key={`cell-ideal-${index}`}
+                                  fill={`${color}4D`}
+                                  fillOpacity={0.3}
+                                  stroke={color}
+                                  strokeDasharray="3 3"
+                                  strokeWidth={2}
+                                />
+                              );
+                            })}
+                          </Bar>
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -3315,6 +3263,83 @@ export default function FinancialFreedomOS() {
                       );
                     })
                   )}
+                </div>
+              </div>
+            </div>
+
+            {/* TREND CHARTS SECTION - Moved from Analytics */}
+            <div className="bg-[#232323] border border-white/5 rounded-2xl p-4 md:p-6 shadow-lg">
+              <SectionHeader title="Trend Keuangan" icon={LineChartIcon} />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+                {/* Net Worth Trend */}
+                <div className="bg-[#1a1a1a] rounded-xl p-4">
+                  <h4 className="text-sm font-bold text-white mb-3">Trend Kekayaan Bersih</h4>
+                  <div className="h-[250px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={analyticsData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                        <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                        <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} tickFormatter={(v) => formatCompact(v)} />
+                        <RechartsTooltip
+                          content={({ active, payload }) => {
+                            if (active && payload?.length) {
+                              return (
+                                <div className="bg-[#1a1a1a] border border-white/10 p-2 rounded-lg">
+                                  <p className="text-xs text-gray-400 mb-1">{payload[0]?.payload.date}</p>
+                                  <p className="text-sm font-bold text-white">
+                                    {formatCurrency(payload[0]?.value as number)}
+                                  </p>
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="netWorth"
+                          stroke="#3b82f6"
+                          strokeWidth={2}
+                          dot={false}
+                          name="Kekayaan Bersih"
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Income vs Expense */}
+                <div className="bg-[#1a1a1a] rounded-xl p-4">
+                  <h4 className="text-sm font-bold text-white mb-3">Pemasukan vs Pengeluaran</h4>
+                  <div className="h-[250px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={analyticsData}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                        <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 10 }} />
+                        <YAxis tick={{ fill: '#9ca3af', fontSize: 10 }} tickFormatter={(v) => formatCompact(v)} />
+                        <RechartsTooltip
+                          content={({ active, payload }) => {
+                            if (active && payload?.length) {
+                              return (
+                                <div className="bg-[#1a1a1a] border border-white/10 p-2 rounded-lg">
+                                  <p className="text-xs text-gray-400 mb-1">{payload[0]?.payload.date}</p>
+                                  {payload.map((p: any, i: number) => (
+                                    <p key={i} className="text-xs font-bold" style={{ color: p.color }}>
+                                      {p.name}: {formatCurrency(p.value)}
+                                    </p>
+                                  ))}
+                                </div>
+                              );
+                            }
+                            return null;
+                          }}
+                        />
+                        <Legend />
+                        <Bar dataKey="income" fill="#22c55e" name="Pemasukan" />
+                        <Bar dataKey="expense" fill="#ef4444" name="Pengeluaran" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
               </div>
             </div>
@@ -3441,18 +3466,6 @@ export default function FinancialFreedomOS() {
           </div>
         );
 
-      case 'investments':
-        return (
-          <div className="space-y-6">
-            <InvestmentModule
-              positions={portfolio}
-              onAddTrade={() => setIsTradeModalOpen(true)}
-              onDeleteAsset={handleDeleteAsset}
-              onUpdatePrice={handleUpdateAssetPrice}
-            />
-          </div>
-        );
-
       case 'goals_debts':
         return (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -3537,219 +3550,20 @@ export default function FinancialFreedomOS() {
           </div>
         );
 
-      case 'analytics':
-        return (
-          <div className="space-y-6">
-            {/* Trend Chart */}
-            <div className="bg-[#232323] border border-white/5 rounded-2xl p-4 md:p-6 shadow-lg">
-              <SectionHeader
-                title="Trend Kekayaan Bersih"
-                icon={LineChartIcon}
-                action={
-                  <button
-                    onClick={exportToCSV}
-                    className="flex items-center gap-2 text-xs bg-white/5 hover:bg-white/10 px-3 py-1.5 rounded-lg transition-all"
-                  >
-                    <Download size={14} /> Export CSV
-                  </button>
-                }
-              />
-              <div className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={analyticsData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                    <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 12 }} />
-                    <YAxis tick={{ fill: '#9ca3af', fontSize: 12 }} tickFormatter={(v) => formatCompact(v)} />
-                    <RechartsTooltip
-                      content={({ active, payload }) => {
-                        if (active && payload?.length) {
-                          return (
-                            <div className="bg-[#1a1a1a] border border-white/10 p-3 rounded-lg">
-                              <p className="text-xs text-gray-400 mb-1">{payload[0]?.payload.date}</p>
-                              <p className="text-sm font-bold text-white">
-                                {formatCurrency(payload[0]?.value as number)}
-                              </p>
-                            </div>
-                          );
-                        }
-                        return null;
-                      }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="netWorth"
-                      stroke="#3b82f6"
-                      strokeWidth={2}
-                      dot={false}
-                      name="Kekayaan Bersih"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Income vs Expense Bar Chart */}
-            <div className="bg-[#232323] border border-white/5 rounded-2xl p-4 md:p-6 shadow-lg">
-              <SectionHeader title="Pemasukan vs Pengeluaran" icon={BarChart} />
-              <div className="h-[250px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={analyticsData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                    <XAxis dataKey="date" tick={{ fill: '#9ca3af', fontSize: 12 }} />
-                    <YAxis tick={{ fill: '#9ca3af', fontSize: 12 }} tickFormatter={(v) => formatCompact(v)} />
-                    <RechartsTooltip
-                      content={({ active, payload }) => {
-                        if (active && payload?.length) {
-                          return (
-                            <div className="bg-[#1a1a1a] border border-white/10 p-2 rounded-lg">
-                              <p className="text-xs text-gray-400 mb-1">{payload[0]?.payload.date}</p>
-                              {payload.map((p: any, i: number) => (
-                                <p key={i} className="text-xs font-bold" style={{ color: p.color }}>
-                                  {p.name}: {formatCurrency(p.value)}
-                                </p>
-                              ))}
-                            </div>
-                          );
-                        }
-                        return null;
-                      }}
-                    />
-                    <Legend />
-                    <Bar dataKey="income" fill="#22c55e" name="Pemasukan" />
-                    <Bar dataKey="expense" fill="#ef4444" name="Pengeluaran" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-        );
-
       default:
         return null;
     }
   };
 
   return (
-    <div className="flex h-screen bg-[#191919] overflow-hidden">
-      {/* Mobile Menu Overlay */}
-      {isMobileMenuOpen && (
-        <div 
-          className="fixed inset-0 bg-black/80 z-40 md:hidden"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
-      )}
-
-      {/* DESKTOP SIDEBAR - Hidden on mobile */}
-      <aside className="hidden md:flex flex-col w-64 bg-[#1e1e1e] border-r border-white/5 overflow-hidden">
-        {/* Logo/Brand */}
-        <div className="p-6 border-b border-white/5">
-          <h1 className="text-lg font-bold text-white flex items-center gap-2">
-            <Wallet className="text-blue-500" size={20} />
-            FinanceOS
-          </h1>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-1">
-          {NAVIGATION_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                  isActive
-                    ? 'bg-blue-600/20 text-blue-500 border-r-2 border-blue-500'
-                    : 'text-gray-500 hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <Icon size={18} />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* User Section */}
-        {user && (
-          <div className="p-4 border-t border-white/5">
-            <div className="text-xs text-gray-500 font-mono mb-2 truncate">{user.email}</div>
-            <button
-              onClick={() => supabase.auth.signOut()}
-              className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-2 rounded-lg text-xs font-bold transition-all border border-red-500/20"
-            >
-              Logout
-            </button>
-          </div>
-        )}
-      </aside>
-
-      {/* MOBILE HEADER */}
-      <div className="md:hidden fixed top-0 left-0 right-0 z-30 bg-[#1e1e1e] border-b border-white/5 px-4 py-3 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-white flex items-center gap-2">
-          <Wallet className="text-blue-500" size={20} />
-          FinanceOS
-        </h1>
-        <button
-          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          className="p-2 text-gray-400 hover:text-white"
-        >
-          {isMobileMenuOpen ? <X size={24} /> : <List size={24} />}
-        </button>
-      </div>
-
-      {/* MOBILE SLIDE-OUT MENU */}
-      {isMobileMenuOpen && (
-        <div className="fixed top-0 left-0 bottom-0 w-64 bg-[#1e1e1e] z-50 md:hidden animate-in slide-in-from-left duration-200">
-          <div className="p-6 border-b border-white/5">
-            <h1 className="text-lg font-bold text-white flex items-center gap-2">
-              <Wallet className="text-blue-500" size={20} />
-              FinanceOS
-            </h1>
-          </div>
-          <nav className="p-4 space-y-1">
-            {NAVIGATION_ITEMS.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setActiveTab(item.id);
-                    setIsMobileMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                    isActive
-                      ? 'bg-blue-600/20 text-blue-500 border-r-2 border-blue-500'
-                      : 'text-gray-500 hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  <Icon size={18} />
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
-          {user && (
-            <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-white/5">
-              <div className="text-xs text-gray-500 font-mono mb-2 truncate">{user.email}</div>
-              <button
-                onClick={() => supabase.auth.signOut()}
-                className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-2 rounded-lg text-xs font-bold transition-all border border-red-500/20"
-              >
-                Logout
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* MAIN CONTENT AREA */}
-      <main className="flex-1 overflow-y-auto pt-16 md:pt-0">
-        {/* Top Header - Date Filter & Actions */}
-        <header className="sticky top-0 z-40 bg-[#191919]/90 backdrop-blur-md border-b border-white/5 px-4 py-4 md:px-6 flex justify-between items-center">
-          <div className="bg-[#232323] p-1 rounded-lg border border-white/5 flex text-xs font-medium shrink-0">
+    <div className="p-4 md:p-6">
+      {/* Page Header */}
+      <PageHeader
+        title="Dashboard Overview"
+        subtitle="Ringkasan kondisi finansialmu saat ini"
+        icon={<LayoutDashboard size={24} className="text-blue-500" />}
+        filterElement={
+          <div className="bg-[#232323] p-1 rounded-lg border border-white/5 flex text-xs font-medium">
             <button
               onClick={() => setDateFilter('thisMonth')}
               className={`px-3 py-1.5 rounded-md transition-all ${dateFilter === 'thisMonth' ? 'bg-white/10 text-white' : 'text-gray-500 hover:text-gray-300'}`}
@@ -3763,8 +3577,9 @@ export default function FinancialFreedomOS() {
               Semua
             </button>
           </div>
-
-          <div className="flex items-center gap-3">
+        }
+        actionElement={
+          <>
             {!user && (
               <button
                 onClick={() => setIsAuthModalOpen(true)}
@@ -3786,13 +3601,12 @@ export default function FinancialFreedomOS() {
             >
               <Plus size={16} /> <span className="hidden sm:inline">Tambah Data</span>
             </button>
-          </div>
-        </header>
+          </>
+        }
+      />
 
-        {/* Page Content */}
-        <div className="p-4 md:p-6 max-w-7xl mx-auto">
-          {renderContent()}
-        </div>
+      {/* Page Content */}
+      {renderContent()}
 
         {/* MODALS */}
         <TransactionModal
@@ -3801,6 +3615,7 @@ export default function FinancialFreedomOS() {
           onSuccess={handleSaveTransaction}
           initialData={editingTransaction}
           userId={user?.id}
+          wallets={wallets}
         />
 
         <SubscriptionModal
@@ -3876,18 +3691,17 @@ export default function FinancialFreedomOS() {
           onSave={handleSaveUserProfile}
           initialProfile={userProfile}
         />
-      </main>
 
-      {/* MODE INDICATOR */}
-      {USE_MOCK_DATA && (
-        <div className="fixed bottom-4 right-4 z-50 bg-yellow-600 text-white text-xs px-3 py-1 rounded-full font-bold shadow-lg animate-pulse">
-          MODE DEMO / MOCK
-        </div>
-      )}
+        {/* MODE INDICATOR */}
+        {USE_MOCK_DATA && (
+          <div className="fixed bottom-4 right-4 z-50 bg-yellow-600 text-white text-xs px-3 py-1 rounded-full font-bold shadow-lg animate-pulse">
+            MODE DEMO / MOCK
+          </div>
+        )}
 
-      {/* ANIMATION STYLES */}
-      <style dangerouslySetInnerHTML={{
-        __html: `
+        {/* ANIMATION STYLES */}
+        <style dangerouslySetInnerHTML={{
+          __html: `
         @keyframes flyOutRadial {
           0% {
             opacity: 0;
@@ -3899,6 +3713,6 @@ export default function FinancialFreedomOS() {
           }
         }
       `}} />
-    </div>
+      </div>
   );
 }
